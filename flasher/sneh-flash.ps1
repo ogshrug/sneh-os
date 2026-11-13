@@ -30,11 +30,9 @@
 .PARAMETER OutDir
   Build the stick contents into this folder instead of a USB disk (no admin needed except to mount the ISO).
 .EXAMPLE
-  pwsh -File flasher
-okuchy-flash.ps1
+  pwsh -File flasher\sneh-flash.ps1
 .EXAMPLE
-  pwsh -File flasher
-okuchy-flash.ps1 -Mode full -Edition desktop -SaveConfig my.conf
+  pwsh -File flasher\sneh-flash.ps1 -Mode full -Edition desktop -SaveConfig my.conf
 #>
 [CmdletBinding()]
 param(

@@ -35,7 +35,7 @@ code, pre { font-family: var(--mono); font-size: .88em; }
 code { background: var(--overlay); padding: .1em .4em; border-radius: 6px; }
 em { font-style: normal; color: var(--accent); }
 .deva { font-family: "Noto Sans Devanagari", var(--deva), sans-serif; font-weight: 700; color: var(--accent); }
-.mark { height: 26px; width: auto; color: var(--fg); vertical-align: -6px; margin-right: 8px; }
+.mark { height: 28px; width: auto; color: var(--fg); vertical-align: -6px; margin-right: 8px; }
 .mark.small { height: 16px; vertical-align: -3px; margin-right: 4px; }
 
 /* nav — a floating pill, like the bar */
@@ -47,13 +47,16 @@ em { font-style: normal; color: var(--accent); }
   border: 1px solid var(--overlay); border-radius: 999px;
   backdrop-filter: blur(10px);
 }
-.brand { text-decoration: none; font-weight: 600; letter-spacing: .02em; display: flex; gap: 8px; align-items: center; }
+.brand { text-decoration: none; display: flex; align-items: center; }
+.brand .mark { margin-right: 0; }
 .nav nav { display: flex; gap: 2px; flex-wrap: wrap; }
 .nav nav a {
   text-decoration: none; color: var(--muted); font-size: 14px; padding: 6px 12px; border-radius: 999px;
   transition: background .2s cubic-bezier(.23,1,.32,1), color .2s;
 }
 .nav nav a:hover { background: var(--overlay); color: var(--fg); }
+.nav nav a.nav-cta { color: var(--bg); background: var(--fg); font-weight: 600; }
+.nav nav a.nav-cta:hover { background: #fff; }
 
 main { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
 section { padding: 96px 0; }
@@ -92,18 +95,11 @@ h3 { font-size: 20px; margin: 0 0 10px; letter-spacing: -.01em; }
 h4 { margin: 0 0 6px; font-size: 15px; }
 
 /* how */
-.flow { list-style: none; padding: 0; margin: 0 0 40px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; counter-reset: s; }
+.flow { list-style: none; padding: 0; margin: 0 0 40px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; counter-reset: s; }
 .flow li { background: var(--surface); border: 1px solid var(--overlay); border-radius: var(--radius); padding: 22px; position: relative; }
 .flow li::before { counter-increment: s; content: counter(s, decimal-leading-zero); font-family: var(--mono); color: var(--muted); font-size: 12px; }
 .flow .step { display: block; font-weight: 600; font-size: 18px; margin: 6px 0 8px; }
 .flow p { margin: 0; color: color-mix(in srgb, var(--fg) 78%, var(--muted)); font-size: 15px; }
-.diagram svg { width: 100%; height: auto; }
-.diagram .node rect { fill: var(--surface); stroke: var(--overlay); }
-.diagram .node.accent rect { stroke: var(--accent); }
-.diagram text { fill: var(--fg); font: 600 15px var(--sans); text-anchor: middle; }
-.diagram text.sub { fill: var(--muted); font: 12px var(--mono); }
-.diagram .edge path { stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 4 5; fill: none; animation: flow 1.6s linear infinite; }
-@keyframes flow { to { stroke-dashoffset: -18; } }
 
 /* cards */
 .grid { display: grid; gap: 14px; }
@@ -130,16 +126,6 @@ h4 { margin: 0 0 6px; font-size: 15px; }
 .features li { color: color-mix(in srgb, var(--fg) 80%, var(--muted)); }
 .features b { color: var(--fg); }
 
-/* stats */
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--overlay); border-radius: var(--radius); margin-bottom: 40px; overflow: hidden; }
-.stats div { padding: 28px 24px; border-right: 1px solid var(--overlay); }
-.stats div:last-child { border-right: 0; }
-.stats b { display: block; font-size: 44px; letter-spacing: -.03em; line-height: 1; }
-.stats small { font-size: 18px; color: var(--muted); margin-left: 3px; font-weight: 500; }
-.stats span { color: var(--muted); font-size: 14px; }
-.grid.small p { color: var(--muted); font-size: 14.5px; margin: 0; }
-.grid.small > div { padding: 4px 4px 18px; border-bottom: 1px solid var(--line); }
-
 /* palettes */
 .swatches { display: flex; flex-wrap: wrap; gap: 10px; }
 .swatches button {
@@ -153,39 +139,52 @@ h4 { margin: 0 0 6px; font-size: 15px; }
 .swatches i { width: 22px; height: 22px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, color-mix(in srgb, var(--a) 70%, #fff), var(--a)); }
 .hint { color: var(--muted); font-size: 14px; margin-top: 18px; }
 
-/* install */
-.steps { padding-left: 22px; display: grid; gap: 18px; max-width: 46em; }
-.steps li::marker { color: var(--accent); font-family: var(--mono); }
-.steps p { margin: 0 0 8px; }
-.steps pre { background: var(--surface); border: 1px solid var(--overlay); border-radius: 12px; padding: 12px 16px; margin: 0; overflow-x: auto; }
-
-/* faq */
-.faq { display: grid; gap: 10px; max-width: 52em; }
-details { background: var(--surface); border: 1px solid var(--overlay); border-radius: 14px; padding: 4px 20px; }
-summary { cursor: pointer; padding: 12px 0; font-weight: 600; list-style: none; }
-summary::-webkit-details-marker { display: none; }
-summary::after { content: "+"; float: right; color: var(--accent); font-family: var(--mono); transition: transform .2s; }
-details[open] summary::after { transform: rotate(45deg); }
-details p { color: var(--muted); margin: 0 0 16px; }
+/* install guide */
+.guide { max-width: 52em; }
+.need { background: var(--surface); border: 1px solid var(--overlay); border-radius: var(--radius); padding: 24px 26px; margin-bottom: 40px; }
+.need .ticks li { color: color-mix(in srgb, var(--fg) 80%, var(--muted)); margin-bottom: 6px; }
+.need b { color: var(--fg); }
+.guide-steps { list-style: none; padding: 0; margin: 0; counter-reset: g; }
+.guide-steps > li { position: relative; padding: 0 0 36px 56px; border-left: 1px solid var(--line); margin-left: 16px; }
+.guide-steps > li:last-child { border-left-color: transparent; }
+.guide-steps > li::before {
+  counter-increment: g; content: counter(g); position: absolute; left: -17px; top: -2px;
+  width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface); border: 1px solid var(--accent); color: var(--accent); font: 600 14px var(--mono);
+}
+.guide-steps h3 { margin: 2px 0 10px; }
+.guide-steps p { margin: 0 0 12px; color: color-mix(in srgb, var(--fg) 82%, var(--muted)); }
+.guide pre { background: var(--surface); border: 1px solid var(--overlay); border-radius: 12px; padding: 12px 16px; margin: 0 0 12px; overflow-x: auto; line-height: 1.6; }
+.note { font-size: 14.5px; color: var(--muted) !important; border-left: 2px solid var(--accent); padding-left: 12px; }
+.choice { margin: 4px 0 14px; }
+.choice .card { padding: 18px 20px; }
+.choice .card p { margin: 0; font-size: 15px; }
+.qa { display: grid; grid-template-columns: 11em 1fr; gap: 8px 18px; margin: 0 0 14px; }
+.qa dt { font-weight: 600; }
+.qa dd { margin: 0; color: color-mix(in srgb, var(--fg) 80%, var(--muted)); }
+.after { margin: 8px 0 40px; }
+.after p { margin: 0; font-size: 15px; }
+.muted { color: var(--muted); font-weight: 400; font-size: .8em; }
+.guide-steps .ticks { margin: 0 0 12px; }
+.guide-steps .ticks li { color: color-mix(in srgb, var(--fg) 82%, var(--muted)); }
+.linux p { color: color-mix(in srgb, var(--fg) 82%, var(--muted)); }
+kbd { font: 12px var(--mono); border: 1px solid var(--overlay); border-bottom-width: 2px; border-radius: 6px; padding: 1px 6px; }
 
 footer { border-top: 1px solid var(--line); padding: 36px 16px 48px; text-align: center; color: var(--muted); font-size: 14px; }
 
 /* responsive */
 @media (max-width: 900px) {
   .hero, .grid.split { grid-template-columns: 1fr; gap: 36px; }
-  .flow { grid-template-columns: 1fr 1fr; }
   .grid.three { grid-template-columns: 1fr 1fr; }
-  .stats { grid-template-columns: 1fr 1fr; }
-  .stats div:nth-child(2) { border-right: 0; }
-  .stats div:nth-child(-n+2) { border-bottom: 1px solid var(--overlay); }
-  .nav nav a:nth-child(n+4) { display: none; }
+  .flow { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
   section { padding: 64px 0; }
   .flow, .grid.two, .grid.three { grid-template-columns: 1fr; }
-  .nav nav { display: none; }
-  .diagram { display: none; }
-  .stats b { font-size: 34px; }
+  .nav nav a:not(.nav-cta) { display: none; }
+  .qa { grid-template-columns: 1fr; gap: 2px; }
+  .qa dd { margin-bottom: 10px; }
+  .guide-steps > li { padding-left: 34px; margin-left: 12px; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
