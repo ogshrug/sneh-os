@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>स्नेह · Sneh — headless, agent-first Arch</title>
+<meta name="description" content="स्नेह (Sneh) is a small, fast, agent-first Arch Linux build for old mini PCs without a monitor. Flash a USB stick on Windows, plug it in, and it installs itself.">
+<link rel="icon" href="assets/sneh-icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+Devanagari:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="nav">
+  <a class="brand" href="#top"><svg class="mark" viewBox="-20 -916 1651 1099" aria-hidden="true" fill="currentColor"><path d="M277 23Q195 -59 141.5 -124Q88 -189 63 -233Q47 -261 40 -283.5Q33 -306 33 -325Q33 -357 52 -376.5Q71 -396 108 -396Q146 -396 175.5 -372.5Q205 -349 234 -316L152 -329Q188 -350 202.5 -378Q217 -406 217 -444Q217 -474 209 -500Q201 -526 187 -543L257 -510H0V-622H525V-510H308L331 -541Q343 -516 349.5 -489.5Q356 -463 356 -429Q356 -389 342.5 -358Q329 -327 307 -304L294 -289Q276 -269 252 -254Q228 -239 197 -227V-244Q222 -215 251 -184.5Q280 -154 313 -123Q346 -92 380 -61ZM441 -204Q392 -204 339 -217Q286 -230 236 -260L283 -345Q323 -329 357 -322.5Q391 -316 430 -316Q459 -316 487 -318.5Q515 -321 544 -325L549 -218Q524 -210 497.5 -207Q471 -204 441 -204ZM415 -622H1045V-510H953V0H813V-261H665V-239Q665 -195 647 -174Q629 -153 595 -153Q570 -153 544 -167.5Q518 -182 495.5 -205.5Q473 -229 459.5 -256.5Q446 -284 446 -308Q446 -337 462 -355Q478 -373 524 -373H813V-510H415ZM1171 -195Q1126 -226 1105 -258.5Q1084 -291 1084 -327Q1084 -388 1129 -420Q1174 -452 1258 -452H1381V-510H1030V-622H1611V-510H1519V-345H1279Q1249 -345 1235 -335Q1221 -325 1221 -306Q1221 -290 1233 -276Q1245 -262 1268 -249ZM1376 -51Q1398 -65 1410 -81.5Q1422 -98 1422 -116Q1422 -139 1401.5 -154.5Q1381 -170 1335 -170Q1281 -170 1252.5 -149.5Q1224 -129 1224 -93Q1224 -63 1247 -39Q1270 -15 1319 7Q1368 29 1443 54L1385 163Q1283 133 1216.5 96Q1150 59 1117.5 12.5Q1085 -34 1085 -91Q1085 -157 1119.5 -198Q1154 -239 1212 -258.5Q1270 -278 1342 -278Q1419 -278 1467 -256Q1515 -234 1537.5 -198.5Q1560 -163 1560 -121Q1560 -82 1543.5 -49Q1527 -16 1490 15Z"/><path fill="var(--accent)" d="M818 -615Q801 -667 787.5 -700Q774 -733 760.5 -751Q747 -769 731 -775.5Q715 -782 694 -782Q676 -782 656.5 -778Q637 -774 620 -767L585 -876Q612 -886 641.5 -891Q671 -896 700 -896Q746 -896 779.5 -883Q813 -870 839 -838.5Q865 -807 888.5 -752.5Q912 -698 938 -615Z"/></svg><span>sneh</span></a>
+  <nav>
+    <a href="#how">How</a>
+    <a href="#editions">Editions</a>
+    <a href="#agents">Agents</a>
+    <a href="#fast">Speed</a>
+    <a href="#install">Install</a>
+    <a href="#faq">FAQ</a>
+  </nav>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <div class="hero-text">
+    <p class="eyebrow"><span class="deva">स्नेह</span> · sneh · affection for old machines</p>
+    <h1>An operating system for the machine <em>under your desk</em> that nobody looks at.</h1>
+    <p class="lede"><span class="deva">स्नेह</span> (sneh: <i>affection</i>) is a small Arch Linux build for old mini PCs with no monitor. It is built for AI agents first and has a quiet dusk-coloured desktop that you reach over VNC. You flash a USB stick on Windows, plug it in, and walk away. It installs itself.</p>
+    <div class="cta">
+      <a class="btn primary" href="#install">Flash a stick</a>
+      <a class="btn ghost" href="#how">How it works</a>
+    </div>
+    <ul class="facts">
+      <li><b>1.6 GB</b> installed</li>
+      <li><b>~11 s</b> to desktop</li>
+      <li><b>&lt; 5 min</b> install</li>
+      <li><b>4 GB</b> DDR3 is plenty</li>
+    </ul>
+  </div>
+  <figure class="hero-shot">
+    <img src="assets/desktop.webp" width="1600" height="900" alt="The Sneh desktop: a dusk forest wallpaper with the big clock behind the trees, the top bar and the dock">
+    <figcaption>Real screenshot of the dusk theme, taken by <code>sne gui screenshot</code> over SSH.</figcaption>
+  </figure>
+</section>
+
+<section id="how" class="band">
+  <div class="section-head">
+    <span class="num">01</span>
+    <h2>How it works</h2>
+    <p>No custom ISO and no screen required. The official, checksummed Arch ISO goes on a FAT32 stick, along with an installer that runs before anyone could type.</p>
+  </div>
+  <ol class="flow">
+    <li>
+      <span class="step">Flash</span>
+      <p>On Windows, <code>sneh-flash.ps1</code> asks for a hostname, user, SSH key, VNC password and Wi-Fi once. It verifies the Arch ISO, writes the stick and adds your settings.</p>
+    </li>
+    <li>
+      <span class="step">Plug in</span>
+      <p>The stick boots in UEFI mode. The ISO's own autorun hook starts the Sneh installer. You can watch it with <code>ssh root@&lt;host&gt;-install.local</code>.</p>
+    </li>
+    <li>
+      <span class="step">Install</span>
+      <p>The installer picks the only internal disk and counts down 30 s before touching it. It lays out btrfs with snapshots and installs only the firmware your hardware has.</p>
+    </li>
+    <li>
+      <span class="step">Done</span>
+      <p>The installer wipes your passwords from the stick and disables the stick's bootloader so it can't boot again. Then it reboots into Sneh. Connect with <code>ssh you@&lt;host&gt;.local</code> or VNC on <code>:5900</code>.</p>
+    </li>
+  </ol>
+  <div class="diagram" aria-hidden="true">
+    <svg viewBox="0 0 900 150" role="img">
+      <g class="node"><rect x="10" y="40" width="170" height="70" rx="14"/><text x="95" y="72">Windows PC</text><text x="95" y="92" class="sub">sneh-flash.ps1</text></g>
+      <g class="node"><rect x="245" y="40" width="170" height="70" rx="14"/><text x="330" y="72">USB stick</text><text x="330" y="92" class="sub">Arch ISO + installer</text></g>
+      <g class="node accent"><rect x="480" y="40" width="170" height="70" rx="14"/><text x="565" y="72">Mini PC</text><text x="565" y="92" class="sub">installs itself</text></g>
+      <g class="node"><rect x="715" y="40" width="175" height="70" rx="14"/><text x="802" y="72">You + agents</text><text x="802" y="92" class="sub">SSH · VNC · sne</text></g>
+      <g class="edge"><path d="M180 75 H245"/><path d="M415 75 H480"/><path d="M650 75 H715"/></g>
+    </svg>
+  </div>
+</section>
+
+<section id="editions">
+  <div class="section-head">
+    <span class="num">02</span>
+    <h2>Two editions, two installers</h2>
+    <p>Pick both when you flash. They share one codebase, one look and one CLI.</p>
+  </div>
+  <div class="grid two">
+    <article class="card">
+      <h3><span class="tag">desktop</span> The headless mini PC</h3>
+      <p>Hyprland draws to a virtual screen that only VNC sees. There's no audio stack and the machine never suspends. The power key powers off and a closed lid is ignored. It's built for a box in a cupboard that runs agents all day.</p>
+      <ul class="ticks"><li>Virtual output at your chosen resolution</li><li>wayvnc with RSA-AES password auth</li><li><code>sne desktop off</code> frees about 250 MB for agents</li></ul>
+    </article>
+    <article class="card">
+      <h3><span class="tag">laptop</span> The one you carry</h3>
+      <p>Real screen, battery, brightness, PipeWire audio, Bluetooth and Wi-Fi TUIs. A lock screen follows the automatic login, and the machine dims, locks and sleeps when idle. VNC is there if you want it.</p>
+      <ul class="ticks"><li>hyprlock and hypridle</li><li>power-profiles-daemon</li><li>impala, bluetui and wiremix</li></ul>
+    </article>
+    <article class="card">
+      <h3><span class="tag">net</span> Small stick</h3>
+      <p>About 1.2 GB on the stick. Packages come from the fastest Arch mirror during the install. This is the right default when the box has Ethernet.</p>
+    </article>
+    <article class="card">
+      <h3><span class="tag">full</span> Offline stick</h3>
+      <p>The Windows flasher resolves the whole dependency tree itself and downloads every package and its signature. It also writes a trimmed repo database. The install then needs no network at all, and that's tested with the VM's internet cut off.</p>
+    </article>
+  </div>
+</section>
+
+<section id="agents" class="band">
+  <div class="section-head">
+    <span class="num">03</span>
+    <h2>Agent-first, not agent-added</h2>
+    <p>Claude Code and opencode come installed. Each gets a system manual it reads on start, along with skills and a tmux session that survives disconnects. Every system action goes through one CLI that returns JSON.</p>
+  </div>
+  <div class="grid split">
+    <div class="term" role="img" aria-label="Terminal session showing sne commands">
+      <div class="term-bar"><i></i><i></i><i></i><span>ssh you@sneh.local</span></div>
+<pre><span class="p">›</span> sne status --json | jq .memory_mb
+<span class="o">{ "total": 3898, "available": 3140, "used": 757 }</span>
+<span class="p">›</span> sne gui launch foot
+<span class="o">✓ launched foot</span>
+<span class="p">›</span> sne gui type "make test" &amp;&amp; sne gui key enter
+<span class="o">✓ typed 9 chars
+✓ key enter</span>
+<span class="p">›</span> RK_SHOT_SCALE=0.5 sne gui screenshot
+<span class="o">~/.cache/sneh/shots/shot-0612.png</span>
+<span class="p">›</span> sne snapshot create "before the agent upgrades node"
+<span class="o">✓ snapshot created</span></pre>
+    </div>
+    <ul class="features">
+      <li><b>Eyes and hands.</b> <code>sne gui</code> takes screenshots, clicks, types and lists windows, all from SSH. An agent can drive any GUI app on the virtual screen.</li>
+      <li><b>A manual, not guesses.</b> <code>AGENTS.md</code> tells the agent what the machine is and what it may change. It also sets the memory budget and says to snapshot before touching <code>/etc</code>.</li>
+      <li><b>Undo.</b> pacman takes btrfs snapshots automatically (snap-pac), and <code>sne snapshot undo N</code> rolls a change back.</li>
+      <li><b>Bash where it matters.</b> The login shell is POSIX, so <code>ssh box 'cmd'</code>, scp and agents all behave. Your interactive terminals still open in fish.</li>
+      <li><b>A workspace of their own.</b> Workspace 1 is your desk. Workspace 2 belongs to the agents: plain, full-screen tmux sessions side by side, one more with every <kbd>Super</kbd>+<kbd>A</kbd>.</li>
+      <li><b>Usage at a glance.</b> The bar shows how much of your Claude plan limit is used and when it resets, read from Claude Code's own status line.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="fast">
+  <div class="section-head">
+    <span class="num">04</span>
+    <h2>Fast on a 4 GB DDR3 machine</h2>
+    <p>Every default was chosen for an old Celeron or Core i3 with slow memory. These numbers are measured, not promised, from the test VM: 2 vCPUs, 4 GB RAM and software rendering.</p>
+  </div>
+  <div class="stats">
+    <div><b>1.6<small>GB</small></b><span>installed on disk</span></div>
+    <div><b>11.3<small>s</small></b><span>power-on to desktop</span></div>
+    <div><b>&lt;5<small>min</small></b><span>unattended install</span></div>
+    <div><b>0</b><span>failed units at boot</span></div>
+  </div>
+  <div class="grid three small">
+    <div><h4>Memory</h4><p>zram swap with zstd at half of RAM, tuned swappiness, and earlyoom. Xwayland is off, foot runs as a server, and there's no portal or audio daemon on the headless edition.</p></div>
+    <div><h4>Disk</h4><p>Only the firmware split your hardware needs. No docs, man pages or foreign translations. A single systemd initramfs, and btrfs with zstd:1 compression.</p></div>
+    <div><h4>Graphics</h4><p>Blur and shadows are off, the frame rate is variable, and the cursor is drawn in software on the headless output. "Melt" animations are short, and <code>sne perf vnc</code> turns them off.</p></div>
+    <div><h4>Kernel</h4><p>linux-zen by default for low latency. The I/O scheduler is chosen per disk type, dirty-page writeback is small so there are no stalls, and BBR is used for SSH and VNC.</p></div>
+    <div><h4>Boot</h4><p>systemd-boot with no timeout. First-boot work is done during the install, and the wait-online service is masked. Shutdown takes about 10 s.</p></div>
+    <div><h4>Updates</h4><p><code>sne update</code> runs pacman and updates the Sneh payload, Claude Code and opencode. The package cache is cleared, so the disk stays small.</p></div>
+  </div>
+</section>
+
+<section id="look" class="band">
+  <div class="section-head">
+    <span class="num">05</span>
+    <h2>Dusk, and a drop of peach</h2>
+    <p>Night-navy, pale lavender type and one peach accent, with its own wallpaper, <em>dusk ridge</em>. Eight palettes regenerate the bar, dock, launcher, terminal, notifications and lock screen in one command. Pick a picture and the accent follows it, and a big clock is drawn <em>behind</em> the scenery, so the trees stand in front of the time. Firewatch wallpapers are one optional download away. <kbd>Super</kbd>+<kbd>/</kbd> lists every shortcut.</p>
+  </div>
+  <div class="swatches">
+    <button data-theme="dusk" class="on"><i style="--a:#efb2a4"></i>dusk</button>
+    <button data-theme="ink"><i style="--a:#c8412f"></i>ink</button>
+    <button data-theme="rose"><i style="--a:#e8a2b4"></i>rose</button>
+    <button data-theme="red-august"><i style="--a:#d9483b"></i>red august</button>
+    <button data-theme="teal"><i style="--a:#5fb3a8"></i>teal</button>
+    <button data-theme="aether"><i style="--a:#cdb58f"></i>aether</button>
+    <button data-theme="olive"><i style="--a:#d6b46a"></i>olive</button>
+    <button data-theme="blue-hour"><i style="--a:#7f9cc9"></i>blue hour</button>
+  </div>
+  <p class="hint">Click a palette to recolour this page. On the machine the command is <code>sne theme set teal</code>.</p>
+</section>
+
+<section id="install">
+  <div class="section-head">
+    <span class="num">06</span>
+    <h2>Flash it</h2>
+    <p>Windows 10/11 with PowerShell 7.4+. A Linux flasher is included too.</p>
+  </div>
+  <ol class="steps">
+    <li><p>Install PowerShell 7 if you don't have it:</p><pre>winget install Microsoft.PowerShell</pre></li>
+    <li><p>Open <b>pwsh as Administrator</b> in the Sneh folder and run:</p><pre>pwsh -File flasher\sneh-flash.ps1</pre></li>
+    <li><p>Mini PC firmware: UEFI on, CSM/Legacy off, Secure Boot off, USB first.</p></li>
+    <li><p>Plug in Ethernet and the stick, then power on. Ten minutes later:</p><pre>ssh you@sneh.local
+sne status</pre></li>
+  </ol>
+</section>
+
+<section id="faq" class="band">
+  <div class="section-head">
+    <span class="num">07</span>
+    <h2>Questions</h2>
+  </div>
+  <div class="faq">
+    <details><summary>Will it wipe the wrong disk?</summary><p>It refuses to guess. It only considers internal, non-removable disks of at least 16 GB, and never the stick. With <code>auto</code> it aborts if there's more than one candidate. You can name the disk by model or serial instead. It also waits 30 s before writing anything, and your settings must include <code>ALLOW_WIPE=yes</code>.</p></details>
+    <details><summary>What if I leave the stick plugged in?</summary><p>Nothing happens. After a successful install it disables its own bootloader, so even firmware that always boots USB first falls through to Sneh. Rename the file back to get an SSH rescue system.</p></details>
+    <details><summary>Which VNC client?</summary><p>Anything that speaks RSA-AES or VeNCrypt, such as TigerVNC 1.13+ or RealVNC Viewer. You can also bind VNC to localhost and tunnel it with <code>ssh -L 5900:localhost:5900</code>, or bind it to Tailscale.</p></details>
+    <details><summary>Does my old CPU work?</summary><p>Any x86-64 machine with UEFI works. Claude Code and opencode need SSE4.2, which every Intel Core since 2008, Bay Trail and later Celerons, and AMD chips since 2011 have. <code>sne doctor</code> checks it.</p></details>
+    <details><summary>The screen goes black on my mini PC</summary><p>Some iGPUs won't start without a display attached. A $5 HDMI dummy plug fixes it, and Sneh then uses that "monitor" for VNC automatically.</p></details>
+    <details><summary>Is this Ryoku or Omarchy?</summary><p>Neither. Sneh is a separate project with its own code and palettes. It takes inspiration from Ryoku's look and Omarchy's take-it-and-go approach, and is built on Arch Linux and Hyprland.</p></details>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <p><svg class="mark small" viewBox="-20 -916 1651 1099" aria-hidden="true" fill="currentColor"><path d="M277 23Q195 -59 141.5 -124Q88 -189 63 -233Q47 -261 40 -283.5Q33 -306 33 -325Q33 -357 52 -376.5Q71 -396 108 -396Q146 -396 175.5 -372.5Q205 -349 234 -316L152 -329Q188 -350 202.5 -378Q217 -406 217 -444Q217 -474 209 -500Q201 -526 187 -543L257 -510H0V-622H525V-510H308L331 -541Q343 -516 349.5 -489.5Q356 -463 356 -429Q356 -389 342.5 -358Q329 -327 307 -304L294 -289Q276 -269 252 -254Q228 -239 197 -227V-244Q222 -215 251 -184.5Q280 -154 313 -123Q346 -92 380 -61ZM441 -204Q392 -204 339 -217Q286 -230 236 -260L283 -345Q323 -329 357 -322.5Q391 -316 430 -316Q459 -316 487 -318.5Q515 -321 544 -325L549 -218Q524 -210 497.5 -207Q471 -204 441 -204ZM415 -622H1045V-510H953V0H813V-261H665V-239Q665 -195 647 -174Q629 -153 595 -153Q570 -153 544 -167.5Q518 -182 495.5 -205.5Q473 -229 459.5 -256.5Q446 -284 446 -308Q446 -337 462 -355Q478 -373 524 -373H813V-510H415ZM1171 -195Q1126 -226 1105 -258.5Q1084 -291 1084 -327Q1084 -388 1129 -420Q1174 -452 1258 -452H1381V-510H1030V-622H1611V-510H1519V-345H1279Q1249 -345 1235 -335Q1221 -325 1221 -306Q1221 -290 1233 -276Q1245 -262 1268 -249ZM1376 -51Q1398 -65 1410 -81.5Q1422 -98 1422 -116Q1422 -139 1401.5 -154.5Q1381 -170 1335 -170Q1281 -170 1252.5 -149.5Q1224 -129 1224 -93Q1224 -63 1247 -39Q1270 -15 1319 7Q1368 29 1443 54L1385 163Q1283 133 1216.5 96Q1150 59 1117.5 12.5Q1085 -34 1085 -91Q1085 -157 1119.5 -198Q1154 -239 1212 -258.5Q1270 -278 1342 -278Q1419 -278 1467 -256Q1515 -234 1537.5 -198.5Q1560 -163 1560 -121Q1560 -82 1543.5 -49Q1527 -16 1490 15Z"/><path fill="var(--accent)" d="M818 -615Q801 -667 787.5 -700Q774 -733 760.5 -751Q747 -769 731 -775.5Q715 -782 694 -782Q676 -782 656.5 -778Q637 -774 620 -767L585 -876Q612 -886 641.5 -891Q671 -896 700 -896Q746 -896 779.5 -883Q813 -870 839 -838.5Q865 -807 888.5 -752.5Q912 -698 938 -615Z"/></svg> sneh · built on Arch Linux and Hyprland · made for the box that never sees a monitor</p>
+</footer>
+
+<script>
+  // palette preview: recolour the page accent
+  const accents = { dusk:'#efb2a4', ink:'#c8412f', rose:'#e8a2b4', 'red-august':'#d9483b', teal:'#5fb3a8', aether:'#cdb58f', olive:'#d6b46a', 'blue-hour':'#7f9cc9' };
+  document.querySelectorAll('.swatches button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.swatches button').forEach(x => x.classList.toggle('on', x === b));
+    document.documentElement.style.setProperty('--accent', accents[b.dataset.theme]);
+  }));
+</script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Optional apps, chosen when flashing (APPS=files,vlc in sneh.conf) and
+# changeable later with `sne apps add|remove NAME`.
+#   NAME:  packages ...   # what it is
+files:   thunar tumbler gvfs xdg-user-dirs   # Thunar file manager, thumbnails, trash + USB drives (~70 MB RAM while open)
+spotify: spotify-launcher spotifyd          # the Spotify app (fetched on first launch) + this PC as a Spotify Connect speaker
+vlc:     vlc vlc-plugins-base vlc-plugin-ffmpeg   # VLC media player (~150 MB disk with Qt)
+mpv:     mpv                                # mpv: a minimal, much lighter video player
+firefox: firefox                            # Firefox web browser (~300 MB disk, ~400 MB RAM while open)
+images:  imv                                # imv: a tiny image viewer

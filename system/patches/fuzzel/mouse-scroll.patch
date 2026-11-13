@@ -1,0 +1,36 @@
+diff --git a/wayland.c b/wayland.c
+index 73dba87..0861b99 100644
+--- a/wayland.c
++++ b/wayland.c
+@@ -1325,7 +1325,7 @@ wl_pointer_frame(void *data, struct wl_pointer *wl_pointer)
+     }
+ 
+     if (refresh)
+-        select_hovered_match(seat, true);
++        wayl_refresh(wayl);
+ }
+ 
+ static void
+@@ -1365,7 +1365,7 @@ wl_pointer_axis_discrete(void *data, struct wl_pointer *wl_pointer,
+     }
+ 
+     if (refresh)
+-        select_hovered_match(seat, true);
++        wayl_refresh(wayl);
+ }
+ 
+ static const struct wl_pointer_listener pointer_listener = {
+diff --git a/wayland.c b/wayland.c
+index 0861b99..41b4db0 100644
+--- a/wayland.c
++++ b/wayland.c
+@@ -1283,6 +1283,9 @@ wl_pointer_axis(void *data, struct wl_pointer *wl_pointer,
+     if (!wayl->enable_mouse)
+         return;
+ 
++    if (seat->pointer.discrete_used)
++        return;
++
+     if (axis != WL_POINTER_AXIS_VERTICAL_SCROLL)
+         return;
+ 

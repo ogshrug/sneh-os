@@ -1,0 +1,7 @@
+.work/
+*.img
+*.qcow2
+*.iso
+*.conf.local
+__pycache__/
+githubrepo/

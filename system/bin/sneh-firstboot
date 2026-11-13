@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# One-shot on the first boot with network (sneh-firstboot.service).
+# Everything here is a retry/optional step, so failures never block boot.
+set -u
+U=$(cat /var/lib/sneh/user)
+H=/home/$U
+log() { echo "sneh-firstboot: $*"; }
+as_user() { runuser -u "$U" -- env HOME="$H" "$@"; }
+
+for _ in $(seq 1 30); do curl -fsI --max-time 5 https://archlinux.org >/dev/null 2>&1 && break; sleep 4; done
+
+if [[ -s /var/lib/sneh/tailscale.authkey ]] && command -v tailscale >/dev/null; then
+    systemctl start tailscaled
+    if tailscale up --authkey="$(cat /var/lib/sneh/tailscale.authkey)" --hostname="$(hostname)"; then
+        log "tailscale up"; shred -u /var/lib/sneh/tailscale.authkey
+    fi
+fi
+
+agents=$(grep -m1 '^AGENTS=' "$H/.config/sneh/settings.env" | cut -d= -f2-)
+if [[ ,${agents:-claude,opencode}, == *,claude,* && ! -x $H/.local/bin/claude ]]; then
+    as_user bash -c 'curl -fsSL https://claude.ai/install.sh | bash' && log "claude code installed"
+fi
+if [[ ,${agents:-claude,opencode}, == *,opencode,* && ! -x $H/.opencode/bin/opencode ]]; then
+    as_user /usr/share/sneh/bin/sne agents install-opencode && log "opencode installed"
+fi
+
+# optional Firewatch wallpapers (wallhaven.cc), only if asked for at install
+if grep -qx 'FIREWATCH=yes' "$H/.config/sneh/settings.env" 2>/dev/null && [[ ! -d $H/.local/share/sneh/wallpapers/firewatch ]]; then
+    as_user env XDG_RUNTIME_DIR=/run/user/$(id -u "$U") /usr/share/sneh/bin/sne wallpaper fetch && log "Firewatch wallpapers fetched"
+fi
+# mouse-wheel fix for fuzzel, if the install was offline (makepkg runs as the
+# user, who may need a password for sudo: allow just pacman while it builds)
+if pacman -Q fuzzel 2>/dev/null | grep -q ' 1\.15\.0-[0-9]*$'; then
+    echo "$U ALL=(root) NOPASSWD: /usr/bin/pacman" >/etc/sudoers.d/00-sneh-firstboot; chmod 440 /etc/sudoers.d/00-sneh-firstboot
+    as_user /usr/share/sneh/bin/sne fix fuzzel >/dev/null 2>&1 && log "fuzzel wheel fix built"
+    rm -f /etc/sudoers.d/00-sneh-firstboot
+fi
+
+if ! fc-list | grep -qi 'Maple Mono'; then
+    tmp=$(mktemp -d)
+    if curl -fsSL -o "$tmp/m.zip" https://github.com/subframe7536/maple-font/releases/latest/download/MapleMono-NF-unhinted.zip; then
+        unzip -qo -j "$tmp/m.zip" 'MapleMono-NF-Regular.ttf' 'MapleMono-NF-Bold.ttf' 'MapleMono-NF-Italic.ttf' 'MapleMono-NF-BoldItalic.ttf' -d "$tmp/f" \
+            && install -Dm644 -t /usr/local/share/fonts/maple "$tmp"/f/*.ttf && fc-cache -f && log "Maple Mono NF installed"
+    fi
+    rm -rf "$tmp"
+fi
+
+command -v snapper >/dev/null && snapper -c root create -c important -d "fresh install" && log "baseline snapshot"
+rm -f /var/lib/sneh/firstboot
+log "done"

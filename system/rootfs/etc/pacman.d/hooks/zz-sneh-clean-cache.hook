@@ -1,0 +1,13 @@
+# स्नेह Sneh: don't keep downloaded packages around (small disks). Runs last,
+# after snap-pac has taken its snapshot.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = *
+
+[Action]
+Description = Removing cached package files...
+When = PostTransaction
+Exec = /usr/bin/find /var/cache/pacman/pkg -maxdepth 1 -type f -name *.pkg.tar* -delete

@@ -1,0 +1,3 @@
+# Agent tooling. Claude Code and opencode use their official installers (into
+# ~/.local/bin and ~/.opencode/bin) so they can update themselves.
+github-cli python uv

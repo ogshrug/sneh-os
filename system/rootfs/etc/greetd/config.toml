@@ -1,0 +1,12 @@
+# Auto-login straight into the headless desktop. If the session loop ever
+# exits, agreety offers a login on tty1.
+[terminal]
+vt = 1
+
+[default_session]
+command = "agreety --cmd /usr/share/sneh/bin/sneh-session"
+user = "greeter"
+
+[initial_session]
+command = "/usr/share/sneh/bin/sneh-session"
+user = "@USER@"

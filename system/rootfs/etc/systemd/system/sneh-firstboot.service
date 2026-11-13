@@ -1,0 +1,15 @@
+[Unit]
+Description=Sneh first-boot tasks (Tailscale, agent retries, first snapshot)
+Wants=network-online.target
+After=network-online.target NetworkManager.service
+ConditionPathExists=/var/lib/sneh/firstboot
+
+[Service]
+# Type=exec: runs in the background, nothing waits for it.
+Type=exec
+ExecStart=/usr/share/sneh/bin/sneh-firstboot
+Nice=10
+IOSchedulingClass=idle
+
+[Install]
+WantedBy=multi-user.target

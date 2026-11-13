@@ -1,0 +1,4 @@
+# The graphical installer (INSTALL_UI=gui) runs in the live USB system: cage
+# (a one-app Wayland kiosk) + a GTK4/libadwaita app. The flasher puts these
+# (and their dependencies) in the stick's repo so it works offline.
+cage python-gobject gtk4 libadwaita inter-font adwaita-icon-theme ttf-jetbrains-mono

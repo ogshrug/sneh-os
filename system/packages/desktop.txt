@@ -1,0 +1,9 @@
+# Wayland shell, both profiles. Deliberately small: no CJK fonts, JetBrains Mono
+# (8 MB) instead of a 240 MB Nerd Font package, symbols from the 3 MB
+# symbols-only font. Devanagari (स्नेह) comes from system/fonts.
+hyprland greetd greetd-agreety mesa
+waybar fuzzel mako libnotify foot foot-terminfo swaybg librsvg
+grim slurp wl-clipboard wtype xdg-utils matugen
+python-pillow playerctl adwaita-icon-theme
+# Optional apps (Thunar, Spotify, VLC, ...) are in apps.txt, picked at flash time.
+inter-font ttf-jetbrains-mono ttf-nerd-fonts-symbols-mono noto-fonts-emoji

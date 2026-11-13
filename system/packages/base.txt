@@ -1,0 +1,7 @@
+# Core system, both profiles. The kernel and firmware are added by the
+# installer (KERNEL=…, firmware matched to the detected hardware).
+base which mkinitcpio btrfs-progs dosfstools efibootmgr
+sudo polkit openssh networkmanager wireless-regdb avahi nss-mdns
+zram-generator earlyoom snapper snap-pac lm_sensors pciutils usbutils
+git curl rsync jq unzip less
+fish starship tmux neovim btop ripgrep fd yazi lazygit fastfetch

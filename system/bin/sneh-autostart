@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Run once by Hyprland on start (hl.on("hyprland.start")).
+SYS=/usr/share/sneh
+CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/sneh
+RKC=${XDG_CONFIG_HOME:-$HOME/.config}/sneh
+STATE=${XDG_STATE_HOME:-$HOME/.local/state}/sneh
+mkdir -p "$CACHE" "$STATE"
+exec >>"$STATE/session.log" 2>&1
+setting() { grep -m1 "^$1=" "$RKC/settings.env" 2>/dev/null | cut -d= -f2-; }
+
+# 1. No monitor plugged in (the mini PC case)? Make a virtual one for VNC.
+real=$(hyprctl -j monitors 2>/dev/null | jq '[.[] | select(.name != "FALLBACK")] | length')
+if [[ ${real:-0} -eq 0 ]]; then
+    echo "$(date -Is) no monitor connected - creating headless output"
+    hyprctl output create headless >/dev/null
+    for _ in $(seq 1 20); do
+        [[ $(hyprctl -j monitors | jq '[.[] | select(.name|test("^HEADLESS"))] | length') -gt 0 ]] && break
+        sleep 0.2
+    done
+fi
+OUT=$(hyprctl -j monitors | jq -r '[.[] | select(.name != "FALLBACK")] | (map(select(.name|test("^HEADLESS")))[0] // .[0]) | .name // empty')
+
+# 2. Let SSH sessions / agents find this desktop.
+{
+    echo "WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+    echo "HYPRLAND_INSTANCE_SIGNATURE=$HYPRLAND_INSTANCE_SIGNATURE"
+    echo "OUTPUT=$OUT"
+} >"$CACHE/session.env"
+systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP 2>/dev/null
+dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP 2>/dev/null
+
+# 3. Shell pieces. foot runs as a server: each terminal costs ~2 MB instead of ~20.
+sne() { "$SYS/bin/sne" "$@"; }
+sne wallpaper start               # depth clock wallpaper (or the theme SVG)
+# GTK apps (waybar, mako) would start GVfs + the udisks volume monitor through
+# GIO (~60 MB that stays resident). They only need local files; Thunar still
+# gets trash/USB support because it is started without these variables.
+export -n GIO_USE_VFS GIO_USE_VOLUME_MONITOR
+GIO_USE_VFS=local GIO_USE_VOLUME_MONITOR=unix setsid -f waybar >/dev/null 2>&1
+GIO_USE_VFS=local GIO_USE_VOLUME_MONITOR=unix setsid -f mako >/dev/null 2>&1
+setsid -f foot --server >/dev/null 2>&1
+# Desk (workspace 1) starts clean: wallpaper, bar, dock. The agents workspace
+# (2) opens its tmux terminal the first time you go there (Hyprland
+# workspace rule). The bar's hidden/shown state starts fresh with waybar.
+rm -f "${XDG_RUNTIME_DIR:-/tmp}/sneh/bar.hidden"
+# Firewatch set asked for but not downloaded yet (offline at install)? Try once we're up.
+if grep -qx 'FIREWATCH=yes' "${XDG_CONFIG_HOME:-$HOME/.config}/sneh/settings.env" 2>/dev/null \
+   && [[ ! -d ${XDG_DATA_HOME:-$HOME/.local/share}/sneh/wallpapers/firewatch ]]; then
+    setsid -f bash -c 'sleep 20; "$1/bin/sne" wallpaper fetch' _ "$SYS" >/dev/null 2>&1
+fi
+command -v ydotoold >/dev/null && setsid -f ydotoold -p "$XDG_RUNTIME_DIR/.ydotool_socket" -o "$(id -u):$(id -g)" >/dev/null 2>&1
+
+# 4. Remote desktop (supervised; sne vnc off disables it).
+command -v wayvnc >/dev/null && setsid -f "$SYS/bin/sne" vnc daemon >/dev/null 2>&1
+
+# 5. Laptop: lock on login + idle handling. (The headless box authenticates at VNC instead.)
+if [[ $(setting PROFILE) == laptop ]]; then
+    command -v hypridle >/dev/null && setsid -f hypridle >/dev/null 2>&1
+    [[ $(setting LOCK_ON_LOGIN) == no ]] || { command -v hyprlock >/dev/null && setsid -f hyprlock >/dev/null 2>&1; }
+fi
+
+echo "$(date -Is) autostart done (output=$OUT)"

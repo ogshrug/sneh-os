@@ -1,0 +1,11 @@
+# Firmware is split per vendor; the installer only installs what the detected
+# hardware needs (linux-firmware-intel alone is 150 MB, the full set ~450 MB).
+# Format: package  PCI/USB vendor IDs that pull it in.
+linux-firmware-intel     8086
+linux-firmware-realtek   10ec 0bda
+linux-firmware-amdgpu    1002
+linux-firmware-radeon    1002
+linux-firmware-atheros   168c 17cb 0cf3
+linux-firmware-mediatek  14c3 0e8d 148f
+linux-firmware-broadcom  14e4 0a5c
+linux-firmware-other     *

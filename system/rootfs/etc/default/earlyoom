@@ -1,0 +1,1 @@
+EARLYOOM_ARGS="-r 3600 -m 4 -s 8 --avoid '(^|/)(Hyprland|sshd|wayvnc|systemd|greetd|NetworkManager)$' --prefer '(^|/)(firefox|chromium|electron)$'"

@@ -1,0 +1,60 @@
+# Sneh install settings (KEY=value, one per line, no quotes).
+# The flasher writes this for you; use it with:  sneh-flash.ps1 -ConfigPath my.conf
+# PASSWORD / VNC_PASSWORD / WIFI_PSK / TAILSCALE_AUTHKEY are wiped from the stick after install.
+
+# desktop = headless mini PC (VNC) | laptop
+# auto = everything is answered here and the machine installs unattended
+# gui  = a graphical installer on the machine asks (laptops / desktops with a screen);
+#        then only INSTALL_MODE (and optionally SSH_PUBKEY) below are used
+INSTALL_UI=auto
+PROFILE=desktop
+# net = download packages during install | full = offline, everything on the stick
+INSTALL_MODE=net
+# linux-zen (default, lowest latency) | linux | linux-lts
+KERNEL=linux-zen
+# off = faster on old Intel CPUs, weaker isolation between programs
+PERF_MITIGATIONS=on
+# auto = only firmware for the detected hardware | full = all firmware
+FIRMWARE=auto
+
+HOSTNAME=sneh
+USERNAME=me
+PASSWORD=change-me
+SUDO_NOPASSWD=no
+TIMEZONE=Europe/London
+LOCALE=en_US.UTF-8
+KEYMAP=us
+XKB_LAYOUT=us
+
+# Leave WIFI_SSID empty to use Ethernet only.
+WIFI_SSID=
+WIFI_PSK=
+WIFI_HIDDEN=no
+TAILSCALE_AUTHKEY=
+
+SSH_PUBKEY=ssh-ed25519 AAAA... you@pc
+SSH_PASSWORD_AUTH=no
+# laptop only: also run VNC / lock right after auto-login
+VNC_ON_LAPTOP=no
+LOCK_ON_LOGIN=yes
+VNC_PASSWORD=change-me-too
+VNC_RESOLUTION=1600x900
+# lan | localhost (ssh -L 5900:localhost:5900 only) | tailscale
+VNC_BIND=lan
+
+# dusk | ink | rose | red-august | teal | aether | olive | blue-hour
+THEME=dusk
+ANIMATIONS=on
+# optional apps (system/packages/apps.txt): files spotify vlc mpv firefox images
+APPS=files,vlc,images
+# yes = also download 14 Firewatch fan-art wallpapers (wallhaven.cc, personal use) on
+# first boot; the default wallpaper is Sneh's own "dusk ridge" either way
+FIREWATCH=no
+# claude,opencode | claude | opencode | none
+AGENTS=claude,opencode
+
+# auto = the only internal disk >= 16 GB; otherwise part of the model/serial, or /dev/sdX
+TARGET_DISK=auto
+REPO_URL=
+# Must be "yes" or the installer refuses to touch any disk.
+ALLOW_WIPE=yes

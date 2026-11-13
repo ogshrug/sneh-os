@@ -1,0 +1,5 @@
+# Laptop: screen, battery, audio, Bluetooth, lock screen. VNC/agent GUI control included too.
+hyprlock hypridle brightnessctl power-profiles-daemon
+pipewire wireplumber pipewire-pulse wiremix
+bluez bluez-utils bluetui impala
+wayvnc ydotool

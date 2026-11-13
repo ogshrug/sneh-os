@@ -1,0 +1,128 @@
+// स्नेह Sneh bar — a full-width header that merges into the screen frame
+// drawn around the wallpaper (sneh-wallpaper, SNEH_FRAME).
+//   left:   brand · workspaces · agents (Claude plan usage, opencode)
+//   centre: weather · clock
+//   right:  Spotify / any MPRIS player · system · VNC · network
+// A template: {{colour}} placeholders are filled by `sne theme set`.
+// Managed by `sne setup`; modules that don't apply (battery on the mini PC) hide themselves.
+// Two bars in one process (one ~60 MB waybar, not two): the header and the dock.
+// Both hide on the agents workspace (sne ws sync).
+[{
+  "name": "header",
+  "layer": "top",
+  "position": "top",
+  "height": 30,
+  "spacing": 0,
+  "reload_style_on_change": true,
+  "modules-left": ["image#brand", "hyprland/workspaces", "custom/agents"],
+  "modules-center": ["custom/weather", "clock"],
+  "modules-right": ["mpris", "cpu", "memory", "temperature", "battery", "backlight", "pulseaudio", "custom/vnc", "network"],
+
+  "image#brand": {
+    "path": "{{home}}/.config/sneh/logo.svg",
+    "size": 30,
+    "tooltip-format": "स्नेह · keys: SUPER+/ · apps: SUPER+SPACE · agents: SUPER+A",
+    "on-click": "sne keys",
+    "on-click-right": "fuzzel"
+  },
+  "hyprland/workspaces": {
+    "format": "{icon}",
+    "format-icons": { "1": "1  desk", "2": "2  agents", "desk": "1  desk", "agents": "2  agents" },
+    "persistent-workspaces": { "*": 2 },
+    "ignore-workspaces": ["^-?[3-9]", "^-?[1-9][0-9]"]
+  },
+  "custom/agents": {
+    "exec": "sne bar agents", "return-type": "json", "interval": 30,
+    "on-click": "footclient -e sne attach", "on-click-right": "footclient -e sne agents status"
+  },
+  "custom/weather": {
+    "exec": "sne bar weather", "return-type": "json", "interval": 1800, "restart-interval": 1800
+  },
+  "clock": {
+    "interval": 30,
+    "format": "{:%H:%M  <span alpha='55%'>%a %d</span>}",
+    "format-alt": "{:%A %d %B · %H:%M}",
+    "tooltip-format": "<span font='JetBrains Mono 12' line_height='1.5'>{calendar}</span>",
+    "calendar": {
+      "mode": "month", "mode-mon-col": 3, "on-scroll": 1,
+      "format": {
+        "months":   "<span color='#{{fg}}' font='Inter Bold 15'>{}</span>",
+        "weekdays": "<span color='#{{muted}}'>{}</span>",
+        "days":     "<span color='#{{fg}}'>{}</span>",
+        "today":    "<span background='#{{accent2}}' color='#{{surface}}'><b>{}</b></span>"
+      }
+    },
+    "actions": { "on-scroll-up": "shift_down", "on-scroll-down": "shift_up", "on-click-right": "shift_reset" }
+  },
+  "mpris": {
+    "format": "{player_icon}  {dynamic}",
+    "format-paused": "{status_icon}  <span alpha='55%'>{dynamic}</span>",
+    "dynamic-order": ["title", "artist"],
+    "dynamic-len": 34,
+    "player-icons": { "default": "󰎆", "spotifyd": "󰓇", "spotify": "󰓇" },
+    "status-icons": { "paused": "󰏤" },
+    "on-click": "playerctl play-pause",
+    "on-click-right": "playerctl next",
+    "on-click-middle": "playerctl previous",
+    "on-scroll-up": "playerctl volume 0.05+",
+    "on-scroll-down": "playerctl volume 0.05-",
+    "tooltip-format": "{title}\n{artist} · {album}\n{position} / {length}\nclick play/pause · right next · middle previous"
+  },
+  "cpu": { "interval": 5, "format": "󰍛 {usage}%", "on-click": "footclient -e btop" },
+  "memory": {
+    "interval": 5,
+    "format": "󰘚 {used:0.1f}G",
+    "tooltip-format": "{used:0.1f} / {total:0.1f} GiB · zram {swapUsed:0.1f} GiB"
+  },
+  "temperature": { "interval": 10, "critical-threshold": 85, "format": "{temperatureC}°", "format-critical": "{temperatureC}° !" },
+  "battery": {
+    "interval": 30,
+    "states": { "warning": 25, "critical": 12 },
+    "format": "󰁹 {capacity}%",
+    "format-charging": "󰁹 {capacity}%+",
+    "tooltip-format": "{timeTo} · {power:.1f} W"
+  },
+  "backlight": { "format": "󰃟 {percent}%", "on-scroll-up": "brightnessctl -e4 -n2 set 5%+", "on-scroll-down": "brightnessctl -e4 -n2 set 5%-" },
+  "pulseaudio": {
+    "format": "󰕾 {volume}%",
+    "format-muted": "󰝟",
+    "on-click": "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle",
+    "on-click-right": "footclient -e wiremix"
+  },
+  "network": {
+    "interval": 10,
+    "format-ethernet": "󰈀",
+    "format-wifi": "󰖩",
+    "format-disconnected": "󰖪",
+    "tooltip-format": "{ifname} · {ipaddr} {essid}",
+    "on-click": "sne net",
+    "on-click-right": "footclient -T network -e nmtui"
+  },
+  "custom/vnc": { "exec": "sne bar vnc", "return-type": "json", "interval": 15 }
+},
+{
+  // the dock: pinned apps, then one tab per open window (click: go to it,
+  // middle-click: close). Floats above the wallpaper frame.
+  "name": "dock",
+  "layer": "top",
+  "position": "bottom",
+  "height": 46,
+  "margin-bottom": 14,
+  "spacing": 0,
+  "exclusive": true,
+  "modules-center": ["custom/d-apps", "custom/d-term", "custom/d-files", "custom/d-spotify", "custom/d-agents", "wlr/taskbar"],
+  "custom/d-apps":    { "format": "󰀻", "tooltip-format": "apps (SUPER+SPACE)",           "on-click": "fuzzel" },
+  "custom/d-term":    { "format": "󰆍", "tooltip-format": "terminal (SUPER+RETURN)",      "on-click": "footclient" },
+  "custom/d-files":   { "format": "󰉋", "tooltip-format": "files (SUPER+E)",              "on-click": "sne app files" },
+  "custom/d-spotify": { "format": "󰓇", "tooltip-format": "Spotify",                      "on-click": "sne app spotify" },
+  "custom/d-agents":  { "format": "󰚩", "tooltip-format": "agents workspace (SUPER+2)",   "on-click": "sne ws agents" },
+  "wlr/taskbar": {
+    "format": "{icon}  {title:.22}",
+    "icon-size": 18,
+    "tooltip-format": "{title} · {app_id}\nclick: show · middle: close",
+    "on-click": "activate",
+    "on-click-middle": "close",
+    "app_ids-mapping": { "footclient": "foot" },
+    "rewrite": { "(.*) - Spotify": "$1", "~": "terminal" }
+  }
+}]

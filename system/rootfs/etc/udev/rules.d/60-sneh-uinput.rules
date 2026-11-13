@@ -1,0 +1,2 @@
+# ydotool (used by `sne gui click`) needs /dev/uinput; members of "input" may use it.
+KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"

@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""स्नेह Sneh depth wallpaper.
+
+  prep   SRC DIR W H   crop SRC to WxH, cut out the foreground silhouette
+                       (trees, towers, cliffs) and pick text colours -> DIR
+  render DIR OUT       draw the big clock *between* the sky and the
+                       foreground, so the scenery overlaps the time
+  thumb  SRC OUT       small preview for the picker
+
+Env: SNEH_FRAME=HEX:TOP:SIDE:RADIUS draws a screen frame in the bar colour
+(the wallpaper sits inside it with rounded corners); SNEH_CLOCK=off skips
+the clock.
+
+`prep` runs once per wallpaper; `render` once a minute (~0.2 s, no daemon).
+Works best on flat, layered art (Firewatch style): the darkest layer that
+touches the bottom edge is treated as "in front of" the clock.
+"""
+import json, os, sys, time
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
+
+FONT_CANDIDATES = [
+    os.environ.get("SNEH_CLOCK_FONT", ""),
+    "/usr/share/fonts/inter/InterVariable.ttf",
+    "/usr/share/fonts/inter/Inter-Black.otf",
+    "/usr/share/fonts/TTF/Inter-Black.ttf",
+    "C:/Windows/Fonts/seguibl.ttf",          # only for testing on Windows
+]
+
+
+def font(size, weight="Black"):
+    for path in FONT_CANDIDATES:
+        if path and os.path.exists(path):
+            f = ImageFont.truetype(path, size)
+            try:
+                f.set_variation_by_name(weight)
+            except Exception:
+                pass
+            return f
+    return ImageFont.load_default(size)
+
+
+def lum(c):
+    r, g, b = c[:3]
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255
+
+
+def mix(a, b, t):
+    return tuple(round(a[i] * (1 - t) + b[i] * t) for i in range(3))
+
+
+def otsu(hist):
+    total = sum(hist)
+    sum_all = sum(i * h for i, h in enumerate(hist))
+    w0 = s0 = 0
+    best, thr = -1, 128
+    for i, h in enumerate(hist):
+        w0 += h
+        if w0 == 0 or w0 == total:
+            continue
+        s0 += i * h
+        m0, m1 = s0 / w0, (sum_all - s0) / (total - w0)
+        var = w0 * (total - w0) * (m0 - m1) ** 2
+        if var > best:
+            best, thr = var, i
+    return thr
+
+
+def cover(img, w, h):
+    return ImageOps.fit(img.convert("RGB"), (w, h), Image.LANCZOS, centering=(0.5, 0.5))
+
+
+def foreground_mask(img):
+    """Mask of the dark layer connected to the bottom edge, at analysis scale."""
+    aw = 480
+    ah = round(img.height * aw / img.width)
+    small = img.resize((aw, ah), Image.BILINEAR).filter(ImageFilter.MedianFilter(3))
+    gray = small.convert("L")
+    # Threshold from the lower 2/3 only: the sky would drag Otsu upwards.
+    hist = gray.crop((0, ah // 3, aw, ah)).histogram()
+    t1 = otsu(hist)
+    # Prefer the darkest layer only (split the dark class again) so mid-ground
+    # hills stay behind the clock - unless that leaves too little in front.
+    t2 = otsu(hist[:t1 + 1] + [0] * (255 - t1))
+
+    def grow(thr):
+        cand = gray.point(lambda v: 255 if v <= thr else 0)
+        px = cand.load()
+        for x in range(aw):          # keep only what touches the bottom edge
+            if px[x, ah - 1] == 255:
+                ImageDraw.floodfill(cand, (x, ah - 1), 128)
+        m = cand.point(lambda v: 255 if v == 128 else 0)
+        return m, sum(1 for v in m.getdata() if v) / (aw * ah)
+
+    mask, cov = grow(t1)
+    if cov > 0.55:                   # mid-ground swallowed too: darkest layer only
+        m2, c2 = grow(t2)
+        if c2 >= 0.18:
+            mask, cov = m2, c2
+    # close small holes (lit windows, stars between branches)
+    mask = mask.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
+    return mask, small
+
+
+def prep(src, out, w, h):
+    os.makedirs(out, exist_ok=True)
+    img = cover(Image.open(src), w, h)
+    img.save(os.path.join(out, "base.jpg"), quality=92)
+    mask, small = foreground_mask(img)
+    aw, ah = mask.size
+    cov = sum(1 for v in mask.getdata() if v) / (aw * ah)
+
+    # top of the foreground in every column
+    mp = mask.load()
+    tops = []
+    for x in range(aw):
+        y = 0
+        while y < ah and not mp[x, y]:
+            y += 1
+        tops.append(y)
+    # Anchor the clock on the most prominent narrow feature (a lookout tower, a
+    # lone tree, a peak) so it crosses the digits; else on the open-sky side.
+    band = range(int(aw * 0.2), int(aw * 0.8))
+
+    def local_median(x, r=aw // 8):
+        near = sorted(tops[max(0, x - r):x + r])
+        return near[len(near) // 2]
+    smooth = [sum(tops[max(0, x - 3):x + 4]) / len(tops[max(0, x - 3):x + 4]) for x in range(aw)]
+    prom = {x: local_median(x) - smooth[x] for x in band}
+    ax = max(band, key=lambda x: prom[x])
+    if prom[ax] < ah * 0.06:
+        ax = max(band, key=local_median)
+    fg_top = tops[ax] / ah
+    local_top = local_median(ax) / ah          # tree line around the anchor
+    median_top = sorted(tops)[aw // 2] / ah
+
+    usable = 0.06 < cov < 0.8 and 0.15 < median_top < 0.97
+    if usable:
+        alpha = mask.resize((w, h), Image.BICUBIC).filter(ImageFilter.GaussianBlur(1.2))
+        fg = img.copy()
+        fg.putalpha(alpha)
+        fg.save(os.path.join(out, "fg.png"), optimize=False, compress_level=1)
+    elif os.path.exists(os.path.join(out, "fg.png")):
+        os.remove(os.path.join(out, "fg.png"))
+
+    # colours: sky (top fifth), foreground (masked), most saturated accent
+    sky = small.crop((0, 0, aw, max(1, ah // 5))).resize((1, 1), Image.BOX).getpixel((0, 0))
+    q = small.quantize(8).convert("RGB").getcolors(aw * ah)
+    q.sort(reverse=True)
+
+    def sat(c):
+        mx, mn = max(c), min(c)
+        return 0 if mx == 0 else (mx - mn) / mx
+    accent = max((c for _, c in q if 0.25 < lum(c) < 0.85), key=sat, default=(235, 227, 210))
+    if lum(sky) < 0.72:
+        text = mix(sky, (255, 255, 255), 0.8)
+    else:                                      # pale sky: a deep tone from the scene
+        fgc = max((c for _, c in q if lum(c) < 0.45), key=sat, default=(40, 30, 30))
+        text = mix(fgc, accent, 0.35)
+
+    meta = dict(w=w, h=h, depth=usable, coverage=round(cov, 3), anchor_x=ax / aw, fg_top=fg_top,
+                median_top=median_top, local_top=local_top, sky="%02x%02x%02x" % sky, accent="%02x%02x%02x" % accent,
+                text="%02x%02x%02x" % text, dark_sky=lum(sky) < 0.55)
+    with open(os.path.join(out, "meta.json"), "w") as f:
+        json.dump(meta, f, indent=1)
+    return meta
+
+
+def render(d, out, now=None):
+    with open(os.path.join(d, "meta.json")) as f:
+        m = json.load(f)
+    w, h = m["w"], m["h"]
+    now = now or time.localtime()
+    hh, mm = time.strftime("%H", now), time.strftime("%M", now)
+    day = time.strftime("%A · %d %B", now).upper()
+
+    img = Image.open(os.path.join(d, "base.jpg")).convert("RGBA")
+    layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    dr = ImageDraw.Draw(layer)
+    tc = tuple(int(m["text"][i:i + 2], 16) for i in (0, 2, 4))
+
+    size = int(h * 0.30)
+    f = font(size)
+    lines = [hh, mm]
+    boxes = [dr.textbbox((0, 0), s, font=f) for s in lines]
+    gap = int(size * 0.07)
+    line_h = max(b[3] - b[1] for b in boxes)
+    block_h = line_h * 2 + gap
+    block_w = max(b[2] - b[0] for b in boxes)
+
+    cx = m["anchor_x"] * w
+    cx = min(max(cx, block_w / 2 + w * 0.06), w - block_w / 2 - w * 0.06)
+    if m["depth"]:
+        # sink the minutes into the scenery so the foreground overlaps them
+        # minutes dip into the tree line; tall features (towers) cross the digits
+        bottom = m.get("local_top", m["fg_top"]) * h + line_h * 0.22
+    else:
+        bottom = h * 0.62
+    top = min(max(bottom - block_h, h * 0.10), h * 0.92 - block_h)
+
+    y = top
+    for s, b in zip(lines, boxes):
+        dr.text((cx - (b[2] - b[0]) / 2 - b[0], y - b[1]), s, font=f, fill=tc + (225,))
+        y += line_h + gap
+
+    fs = font(max(14, int(h * 0.022)), "SemiBold")
+    spaced = " ".join(day)
+    b = dr.textbbox((0, 0), spaced, font=fs)
+    dr.text((cx - (b[2] - b[0]) / 2, top - (b[3] - b[1]) - h * 0.025), spaced, font=fs, fill=tc + (235,))
+
+    img.alpha_composite(layer)
+    fgp = os.path.join(d, "fg.png")
+    if m["depth"] and os.path.exists(fgp):
+        img.alpha_composite(Image.open(fgp))
+    save(frame(img), out)
+
+
+def frame(img):
+    spec = os.environ.get("SNEH_FRAME", "")
+    if not spec:
+        return img
+    try:
+        hexc, top, side, rad = spec.split(":")
+        col = tuple(int(hexc[i:i + 2], 16) for i in (0, 2, 4)) + (255,)
+        top, side, rad = int(top), int(side), int(rad)
+    except ValueError:
+        return img
+    w, h = img.size
+    hole = Image.new("L", (w, h), 255)
+    ImageDraw.Draw(hole).rounded_rectangle((side, top, w - 1 - side, h - 1 - side), rad, fill=0)
+    img.paste(Image.new("RGBA", (w, h), col), (0, 0), hole)
+    return img
+
+
+def save(img, out):
+    # JPEG: ~0.5 MB in tmpfs instead of ~6 MB for a PNG, and quicker to write
+    tmp = out + ".tmp"
+    img.convert("RGB").save(tmp, "JPEG", quality=93, subsampling=0)
+    os.replace(tmp, out)
+
+
+def plain(src, out, w, h):
+    """No clock: just crop + frame (used for SNEH_CLOCK=off)."""
+    save(frame(cover(Image.open(src), w, h).convert("RGBA")), out)
+
+
+def thumb(src, out):
+    im = ImageOps.fit(Image.open(src).convert("RGB"), (320, 180), Image.LANCZOS)
+    im.save(out, "PNG")
+
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    if len(a) == 5 and a[0] == "prep":
+        print(json.dumps(prep(a[1], a[2], int(a[3]), int(a[4]))))
+    elif len(a) == 3 and a[0] == "render":
+        render(a[1], a[2])
+    elif len(a) == 5 and a[0] == "plain":
+        plain(a[1], a[2], int(a[3]), int(a[4]))
+    elif len(a) == 3 and a[0] == "thumb":
+        thumb(a[1], a[2])
+    else:
+        sys.exit(__doc__)

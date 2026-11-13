@@ -1,0 +1,2 @@
+# Headless mini PC: remote desktop + GUI automation for agents. No audio stack.
+wayvnc ydotool

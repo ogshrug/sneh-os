@@ -1,0 +1,29 @@
+# स्नेह Sneh prompt: quiet and fast.
+add_newline = false
+command_timeout = 300
+scan_timeout = 20
+format = "$hostname$directory$git_branch$git_status$cmd_duration$line_break$character"
+
+[hostname]
+ssh_only = true
+format = "[$hostname](bold #c8412f) "
+
+[directory]
+truncation_length = 3
+style = "#ebe3d2"
+
+[git_branch]
+format = "[$branch]($style) "
+style = "#857d6e"
+
+[git_status]
+style = "#c8412f"
+
+[cmd_duration]
+min_time = 2000
+format = "[$duration]($style) "
+style = "#857d6e"
+
+[character]
+success_symbol = "[›](#ebe3d2)"
+error_symbol = "[›](#c8412f)"

@@ -1,0 +1,43 @@
+# fuzzel 1.15.0 with the upstream mouse-wheel fix (codeberg dnkl/fuzzel #790,
+# commits 0c41b3dcaf + 8c4cdbebb3). 1.15.0 moves the selection on a wheel tick and
+# then snaps it back to the row under the pointer, so menus never scroll.
+# Built on the machine by `sne fix fuzzel`; pkgrel 2.1 sits above Arch's 1.15.0-2,
+# and the next Arch release (which carries the fix) replaces it on its own.
+# Based on Arch's PKGBUILD (Caleb Maclennan, Daniel Eklöf).
+pkgname=fuzzel
+pkgver=1.15.0
+pkgrel=2.1
+pkgdesc='Application launcher for wlroots based Wayland compositors (mouse-wheel fix)'
+url="https://codeberg.org/dnkl/$pkgname"
+arch=(x86_64)
+license=(MIT)
+depends=(cairo fcft fontconfig libfcft.so libpng libxkbcommon pixman wayland resvg)
+makedepends=(meson scdoc tllist wayland-protocols)
+backup=('etc/xdg/fuzzel/fuzzel.ini')
+options=(!debug)
+source=("$pkgname-$pkgver.tar.gz::$url/archive/$pkgver.tar.gz"
+        mouse-scroll.patch)
+sha256sums=('95b6c022fc1f1c7ab586d47c1594417cc311bf41ea8f5f8b5641478da7b5cf3b'
+            'SKIP')
+
+prepare() {
+	cd "$pkgname"
+	patch -p1 <../mouse-scroll.patch
+}
+
+build() {
+	cd "$pkgname"
+	CFLAGS+=' -I/usr/include/resvg'
+	arch-meson \
+		-Denable-cairo=enabled \
+		-Dpng-backend=libpng \
+		-Dsvg-backend=resvg \
+		. build
+	meson compile -C build
+}
+
+package() {
+	cd "$pkgname"
+	meson install -C build --destdir "$pkgdir"
+	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname/" LICENSE
+}

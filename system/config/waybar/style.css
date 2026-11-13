@@ -1,0 +1,103 @@
+/* स्नेह Sneh header. The bar is the top edge of a frame: the wallpaper is
+   drawn inset with rounded corners in the same colour (@surface), so bar and
+   frame read as one piece. Colours come from colors.css (sne theme set). */
+@import "colors.css";
+
+* {
+  font-family: "Inter", "Symbols Nerd Font Mono", "Noto Sans Devanagari", sans-serif;
+  font-size: 12px;
+  min-height: 0;
+  border: none;
+  border-radius: 0;
+}
+
+window#waybar { background: @surface; color: @fg; }
+
+.modules-left  { padding-left: 8px; }
+.modules-right { padding-right: 10px; }
+
+/* each module is a quiet "tab"; groups are separated by air, not boxes */
+#custom-brand, #workspaces, #custom-agents, #custom-weather, #clock, #mpris,
+#cpu, #memory, #temperature, #battery, #backlight, #pulseaudio, #custom-vnc, #network {
+  margin: 4px 2px;
+  padding: 0 9px;
+  border-radius: 7px;
+  color: @fg;
+  transition: background 200ms ease, color 200ms ease;
+}
+
+/* the स्नेह mark (image, recoloured with the theme by sne setup) */
+#image.brand { padding: 0 10px 0 12px; margin: 4px 2px; border-radius: 7px; }
+#image.brand:hover { background: @overlay; }
+
+#workspaces { padding: 0 2px; }
+#workspaces button {
+  color: @muted;
+  background: transparent;
+  font-size: 11px;
+  padding: 0 6px;
+  margin: 2px 1px;
+  border-radius: 6px;
+  transition: all 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+#workspaces button.empty  { color: alpha(@muted, 0.4); }
+#workspaces button.active { color: @surface; background: @accent2; padding: 0 11px; }
+#workspaces button.urgent { color: @surface; background: @urgent; }
+#workspaces button:hover  { background: @overlay; color: @fg; box-shadow: none; text-shadow: none; }
+
+/* agents pill: "Claude 13% · 2h 05m" (plan usage) + opencode */
+#custom-agents { background: alpha(@overlay, 0.7); padding: 0 11px; }
+#custom-agents.idle { color: @muted; background: transparent; }
+#custom-agents.warn { color: @accent2; }
+#custom-agents.hot  { color: @surface; background: @urgent; }
+
+#custom-weather { color: @muted; padding-right: 2px; }
+#clock { font-weight: 600; letter-spacing: 1px; background: alpha(@overlay, 0.7); padding: 0 13px; }
+
+#mpris { background: alpha(@overlay, 0.7); padding: 0 12px; }
+#mpris.paused  { color: @muted; background: transparent; }
+#mpris.spotifyd, #mpris.spotify { border-bottom: 2px solid @accent2; }
+
+#cpu, #memory, #temperature, #battery, #backlight, #pulseaudio, #custom-vnc, #network { padding: 0 6px; margin: 4px 0; }
+#temperature, #custom-vnc.off { color: @muted; }
+#temperature.critical, #battery.critical { color: @urgent; }
+#battery.warning { color: @accent2; }
+#custom-vnc.viewing { color: @accent2; }
+#pulseaudio.muted { color: @muted; }
+
+tooltip { background: alpha(@surface, 0.97); border: 1px solid @overlay; border-radius: 14px; }
+tooltip label { color: @fg; padding: 10px 14px; }
+
+/* ---- dock (bar "dock"): a floating pill at the bottom of the desk ---- */
+window#waybar.dock { background: transparent; }
+window#waybar.dock .modules-center {
+  background: alpha(@surface, 0.92);
+  border: 1px solid alpha(@overlay, 0.9);
+  border-radius: 16px;
+  padding: 4px 8px;
+}
+#custom-d-apps, #custom-d-term, #custom-d-files, #custom-d-spotify, #custom-d-agents {
+  font-family: "Symbols Nerd Font Mono";
+  font-size: 18px;
+  min-width: 34px;
+  margin: 0 2px;
+  padding: 0 6px;
+  border-radius: 11px;
+  color: @fg;
+  transition: background 160ms ease, color 160ms ease;
+}
+#custom-d-apps:hover, #custom-d-term:hover, #custom-d-files:hover, #custom-d-spotify:hover, #custom-d-agents:hover {
+  background: @overlay; color: @accent2;
+}
+#custom-d-agents { color: @accent2; margin-right: 8px; }
+#taskbar { border-left: 1px solid @overlay; padding-left: 8px; }
+#taskbar button {
+  color: @muted;
+  padding: 0 12px;
+  margin: 0 2px;
+  border-radius: 11px;
+  transition: all 160ms ease;
+}
+#taskbar button:hover  { background: @overlay; color: @fg; box-shadow: none; text-shadow: none; }
+#taskbar button.active { background: alpha(@overlay, 0.9); color: @fg; border-bottom: 2px solid @accent2; }
+#taskbar button.minimized { opacity: 0.55; }

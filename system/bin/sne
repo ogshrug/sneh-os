@@ -1,0 +1,1254 @@
+#!/usr/bin/env bash
+# sne — the Sneh system CLI. Built for humans *and* agents:
+# every read command takes --json, every write command is idempotent,
+# and `sne gui ...` lets an agent see and drive the desktop over SSH.
+set -uo pipefail
+
+SYS=${SNEH_SYS:-/usr/share/sneh}
+CONF=${XDG_CONFIG_HOME:-$HOME/.config}
+RKC=$CONF/sneh
+SETTINGS=$RKC/settings.env
+STATE=${XDG_STATE_HOME:-$HOME/.local/state}/sneh
+CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/sneh
+VERSION=$(cat "$SYS/VERSION" 2>/dev/null || echo dev)
+
+JSON=0
+ARGS=()
+for a in "$@"; do
+    case $a in
+        --json|-j) JSON=1 ;;
+        *) ARGS+=("$a") ;;
+    esac
+done
+set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+# ------------------------------------------------------------------ helpers
+c_dim=$'\e[38;2;133;125;110m'; c_acc=$'\e[38;2;200;65;47m'; c_fg=$'\e[38;2;235;227;210m'; c_r=$'\e[0m'
+[[ -t 1 ]] || { c_dim=; c_acc=; c_fg=; c_r=; }
+
+die()  { if ((JSON)); then jq -cn --arg e "$*" '{ok:false,error:$e}'; else printf '%sgun:%s %s\n' "$c_acc" "$c_r" "$*" >&2; fi; exit 1; }
+say()  { ((JSON)) || printf '%s\n' "$*"; }
+ok()   { if ((JSON)); then jq -cn --arg m "$*" '{ok:true,message:$m}'; else printf '%s✓%s %s\n' "$c_acc" "$c_r" "$*"; fi; }
+have() { command -v "$1" >/dev/null 2>&1; }
+need() { have "$1" || die "missing '$1' (install it: sudo pacman -S ${2:-$1})"; }
+
+settings_get() { # key [default]
+    local v
+    v=$(grep -m1 "^$1=" "$SETTINGS" 2>/dev/null | cut -d= -f2-)
+    printf '%s' "${v:-${2:-}}"
+}
+settings_set() { # key value
+    mkdir -p "$RKC"; touch "$SETTINGS"
+    if grep -q "^$1=" "$SETTINGS"; then
+        local tmp; tmp=$(mktemp)
+        awk -v k="$1" -v v="$2" -F= 'BEGIN{OFS="="} $1==k {print k, v; next} {print}' "$SETTINGS" >"$tmp" && mv "$tmp" "$SETTINGS"
+    else
+        printf '%s=%s\n' "$1" "$2" >>"$SETTINGS"
+    fi
+}
+profile() { settings_get PROFILE desktop; }
+agent_count() { local n; n=$(pgrep -c -f '(^|/)(claude|opencode)( |$)' 2>/dev/null); echo "${n:-0}"; }
+
+# Find the running Hyprland session from SSH / cron / agents.
+gui_env() {
+    export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+    if [[ -r $CACHE/session.env ]]; then
+        local k v
+        while IFS='=' read -r k v; do
+            [[ $k =~ ^(WAYLAND_DISPLAY|HYPRLAND_INSTANCE_SIGNATURE|OUTPUT)$ ]] && export "$k=$v"
+        done <"$CACHE/session.env"
+    fi
+    if [[ -z ${HYPRLAND_INSTANCE_SIGNATURE:-} || ! -d $XDG_RUNTIME_DIR/hypr/${HYPRLAND_INSTANCE_SIGNATURE:-x} ]]; then
+        local d; d=$(ls -1td "$XDG_RUNTIME_DIR"/hypr/*/ 2>/dev/null | head -1)
+        [[ -n $d ]] && { HYPRLAND_INSTANCE_SIGNATURE=$(basename "$d"); export HYPRLAND_INSTANCE_SIGNATURE; }
+    fi
+    if [[ -z ${WAYLAND_DISPLAY:-} || ! -S $XDG_RUNTIME_DIR/${WAYLAND_DISPLAY:-x} ]]; then
+        local s; s=$(find "$XDG_RUNTIME_DIR" -maxdepth 1 -name 'wayland-*' -type s 2>/dev/null | sort | head -1)
+        [[ -n $s ]] && { WAYLAND_DISPLAY=$(basename "$s"); export WAYLAND_DISPLAY; }
+    fi
+    export YDOTOOL_SOCKET=$XDG_RUNTIME_DIR/.ydotool_socket
+    # apps started from an ssh session need the system locale (UTF-8 prompts etc.)
+    [[ -n ${LANG:-} ]] || { local l; l=$(grep -m1 '^LANG=' /etc/locale.conf 2>/dev/null) && export "${l:-LANG=C.UTF-8}"; }
+    export NO_AT_BRIDGE=1 GTK_A11Y=none GSETTINGS_BACKEND=memory
+}
+desktop_running() { pgrep -u "$(id -u)" -x Hyprland >/dev/null || pgrep -u "$(id -u)" -x hyprland >/dev/null; }
+require_desktop() { desktop_running || die "desktop is not running (start it: sne desktop on)"; gui_env; }
+hypr() { gui_env; hyprctl "$@"; }
+hdispatch() { hypr dispatch "$1" >/dev/null; }
+
+gui_output() { # the output wayvnc / screenshots should use
+    gui_env
+    local o
+    o=$(hyprctl -j monitors 2>/dev/null | jq -r '[.[] | select(.name != "FALLBACK")] | (map(select(.name|test("^HEADLESS")))[0] // .[0]) | .name // empty')
+    printf '%s' "$o"
+}
+
+# ------------------------------------------------------------------ theme
+theme_dir() { printf '%s/themes/%s' "$SYS" "$1"; }
+
+render_templates() { # theme
+    local t=$1 pal; pal="$(theme_dir "$t")/palette.env"
+    [[ -r $pal ]] || die "unknown theme '$t' (sne theme list)"
+    declare -A P=()
+    local k v
+    while IFS='=' read -r k v; do [[ $k =~ ^[a-z0-9]+$ ]] && P[$k]=$v; done < <(grep -v '^#' "$pal")
+    if [[ -r $RKC/palette.override ]]; then
+        while IFS='=' read -r k v; do [[ $k =~ ^[a-z0-9]+$ && $v =~ ^[0-9a-fA-F]{6}$ ]] && P[$k]=$v; done <"$RKC/palette.override"
+    fi
+    local res; res=$(settings_get VNC_RESOLUTION 1600x900)
+    P[W]=${res%x*}; P[H]=${res#*x}; P[home]=$HOME
+    local args=()
+    for k in "${!P[@]}"; do args+=(-e "s|{{$k}}|${P[$k]//|/\\|}|g"); done
+    local tpl dest
+    for tpl in "$SYS"/templates/*; do
+        dest=$(basename "$tpl"); dest=$CONF/${dest//__//}
+        mkdir -p "$(dirname "$dest")"
+        sed "${args[@]}" "$tpl" >"$dest.tmp" && mv "$dest.tmp" "$dest"
+    done
+    printf '%s' "${P[bg]}" >"$RKC/.bg"
+    printf '%s' "${P[surface]}" >"$RKC/.frame"
+    # dock: no button for an optional app that isn't installed
+    if [[ -f $CONF/waybar/config.jsonc ]] && ! command -v spotify-launcher >/dev/null; then
+        sed -i -E 's/, *"custom\/d-spotify"//' "$CONF/waybar/config.jsonc"
+    fi
+    # headless box: no battery/backlight/audio modules in the bar
+    if [[ $(profile) != laptop && -f $CONF/waybar/config.jsonc ]]; then
+        sed -i -E '/"modules-right"/ s/, *"(battery|backlight|pulseaudio)"//g' "$CONF/waybar/config.jsonc"
+    fi
+}
+
+# Wallpapers: the user's pick (WALLPAPER=path), else Sneh's own "dusk ridge"
+# (shipped in $SYS/wallpapers), else the theme's SVG. With python-pillow present
+# a picture gets the depth clock (sneh-wallpaper): a small loop re-renders it
+# once a minute and swaps swaybg. Between renders only a sleeping bash is resident.
+WALLS=${XDG_DATA_HOME:-$HOME/.local/share}/sneh/wallpapers
+RUNW=${XDG_RUNTIME_DIR:-/tmp}/sneh
+DEFAULT_WALL=$SYS/wallpapers/dusk-ridge.jpg   # drawn for the dusk palette
+# Optional extra set (sne wallpaper fetch, or FIREWATCH=yes at install): Firewatch
+# fan art (Campo Santo / Olly Moss) from wallhaven.cc, downloaded on the machine
+# for personal use - never shipped.
+FIREWATCH=(mpdz88.png 4d38m0.jpg 836q3o.png 3z72w9.jpg pkykkm.png x1kpl3.jpg d51kqj.jpg 0w3pdr.jpg
+           gjzmq3.png 8x2oz2.jpg 498e2w.png j8m3py.jpg lyz3d2.png yjy6qg.jpg)
+
+wall_current() { # the picture in use: the user's pick, else dusk ridge (empty: the theme SVG)
+    local w; w=$(settings_get WALLPAPER)
+    if [[ -n $w && -r $w ]]; then echo "$w"; elif [[ -r $DEFAULT_WALL ]]; then echo "$DEFAULT_WALL"; fi
+}
+
+render_wallpaper() {
+    local svg=$RKC/wallpaper.svg png=$RKC/wallpaper.png custom
+    custom=$(wall_current)
+    if [[ -n $custom ]]; then ln -sf "$custom" "$RKC/wallpaper.current"; return; fi
+    local res; res=$(settings_get VNC_RESOLUTION 1600x900)
+    if have rsvg-convert && rsvg-convert -w "${res%x*}" -h "${res#*x}" -o "$png.tmp" "$svg" 2>/dev/null; then
+        mv "$png.tmp" "$png"; ln -sf "$png" "$RKC/wallpaper.current"
+    else
+        rm -f "$png.tmp" "$RKC/wallpaper.current"
+    fi
+}
+
+wall_capable() { python3 -c 'import PIL' 2>/dev/null; }
+
+output_size() { # WxH of the output the desktop is shown on
+    local o; o=$(gui_output 2>/dev/null)
+    hyprctl -j monitors 2>/dev/null \
+        | jq -r --arg o "$o" '[.[] | select(.name != "FALLBACK")] | (map(select(.name == $o))[0] // .[0]) | select(.) | "\(.width)x\(.height)"' 2>/dev/null \
+        | grep -E '^[0-9]+x[0-9]+$' || settings_get VNC_RESOLUTION 1600x900
+}
+
+swap_swaybg() { # IMAGE - start the new one first so there's never a blank frame
+    local old; old=$(pgrep -u "$(id -u)" -x swaybg | tr '\n' ' ')
+    setsid -f swaybg -m fill -i "$1" >/dev/null 2>&1 9>&-   # 9>&-: don't hand it the loop's lock
+    sleep 1.2                      # let the new one fade in fully over the old one
+    [[ -n $old ]] && kill $old 2>/dev/null
+    return 0
+}
+
+wall_daemon() {
+    gui_env
+    mkdir -p "$RUNW"
+    exec 9>"$RUNW/wall.lock"
+    flock -n 9 || return 0                     # one per session
+    local img res w h key dir out n=0
+    img=$(readlink -f "$RKC/wallpaper.current")
+    res=$(output_size); w=${res%x*}; h=${res#*x}
+    key=$(printf '%s:%s:%s' "$img" "$res" "$(stat -c %Y "$img" 2>/dev/null)" | md5sum | cut -c1-12)
+    dir=$CACHE/wall/$key
+    export SNEH_FRAME="$(cat "$RKC/.frame" 2>/dev/null || echo 0d0c0a):30:6:16"
+    if [[ ! -s $dir/meta.json ]]; then
+        rm -rf "$CACHE/wall"; mkdir -p "$dir"      # keep only the current one
+        nice -n 10 "$SYS/bin/sneh-wallpaper" prep "$img" "$dir" "$w" "$h" >/dev/null || return 1
+    fi
+    if [[ $(settings_get CLOCK on) == off ]]; then
+        "$SYS/bin/sneh-wallpaper" plain "$img" "$RUNW/wall-0.jpg" "$w" "$h" && swap_swaybg "$RUNW/wall-0.jpg"
+        return 0
+    fi
+    while :; do
+        out=$RUNW/wall-$((n % 2)).jpg; n=$((n + 1))
+        nice -n 10 "$SYS/bin/sneh-wallpaper" render "$dir" "$out" 9>&- || return 1
+        swap_swaybg "$out"
+        sleep $((60 - 10#$(date +%S))) 9>&-
+    done
+}
+
+start_wallpaper() {
+    gui_env
+    # stop the old loop: its whole process group (the loop, its sleep, a render)
+    if [[ -r $RUNW/wall.pid ]]; then kill -- "-$(cat "$RUNW/wall.pid")" 2>/dev/null; rm -f "$RUNW/wall.pid"; fi
+    if [[ -n $(wall_current) && -e $RKC/wallpaper.current ]] && wall_capable; then
+        mkdir -p "$RUNW"
+        setsid -f bash -c 'echo $$ >"$1/wall.pid"; exec "$2" wallpaper daemon' _ "$RUNW" "$SYS/bin/sne" >/dev/null 2>&1
+        return 0
+    fi
+    pkill -u "$(id -u)" -x swaybg 2>/dev/null
+    if [[ -e $RKC/wallpaper.current ]]; then
+        setsid -f swaybg -m fill -i "$RKC/wallpaper.current" >/dev/null 2>&1
+    else
+        setsid -f swaybg -c "#$(cat "$RKC/.bg" 2>/dev/null || echo 000000)" >/dev/null 2>&1
+    fi
+}
+
+reload_desktop() {
+    desktop_running || return 0
+    gui_env
+    hyprctl reload >/dev/null 2>&1 || hdispatch 'hl.dsp.reload_config()'
+    # a reload shows every bar again: forget "hidden", then re-apply for this workspace
+    pkill -u "$(id -u)" -USR2 -x waybar 2>/dev/null && { rm -f "$RUNW/bar.hidden"; ( sleep 1; cmd_ws sync ) & }
+    have makoctl && makoctl reload 2>/dev/null
+    start_wallpaper
+    have tmux && tmux source-file "$CONF/tmux/tmux.conf" 2>/dev/null
+    return 0
+}
+
+write_hypr_settings() {
+    local res anim layout prof
+    res=$(settings_get VNC_RESOLUTION 1600x900)
+    anim=$(settings_get ANIMATIONS on)
+    layout=$(settings_get XKB_LAYOUT us)
+    prof=$(profile)
+    local xw; xw=$(settings_get XWAYLAND "$([[ $prof == laptop ]] && echo on || echo off)")
+    mkdir -p "$CONF/hypr"
+    cat >"$CONF/hypr/settings.lua" <<EOF
+-- generated by sne from ~/.config/sneh/settings.env - edit that file or use sne
+return {
+    profile    = "$prof",
+    resolution = "${res}@30",
+    animations = $([[ $anim == on ]] && echo true || echo false),
+    kb_layout  = "$layout",
+    xwayland   = $([[ $xw == on ]] && echo true || echo false),
+}
+EOF
+}
+
+cmd_theme() {
+    case ${1:-current} in
+        list)
+            if ((JSON)); then
+                local cur; cur=$(settings_get THEME dusk)
+                for d in "$SYS"/themes/*/; do
+                    local n; n=$(basename "$d")
+                    jq -cn --arg n "$n" --arg t "$(grep -m1 '^title=' "$d/palette.env" | cut -d= -f2-)" --argjson c "$([[ $n == "$cur" ]] && echo true || echo false)" '{name:$n,title:$t,current:$c}'
+                done | jq -cs .
+            else
+                local cur; cur=$(settings_get THEME dusk)
+                for d in "$SYS"/themes/*/; do
+                    local n; n=$(basename "$d")
+                    printf '  %s %-11s %s%s%s\n' "$([[ $n == "$cur" ]] && echo "$c_acc●$c_r" || echo " ")" "$n" "$c_dim" "$(grep -m1 '^title=' "$d/palette.env" | cut -d= -f2-)" "$c_r"
+                done
+            fi ;;
+        current) if ((JSON)); then jq -cn --arg t "$(settings_get THEME dusk)" '{theme:$t}'; else settings_get THEME dusk; echo; fi ;;
+        set)
+            local t=${2:?usage: sne theme set NAME}
+            [[ -d $(theme_dir "$t") ]] || die "unknown theme '$t' (sne theme list)"
+            settings_set THEME "$t"
+            rm -f "$RKC/palette.override"
+            render_templates "$t"; render_wallpaper; write_hypr_settings; reload_desktop
+            ok "theme → $t" ;;
+        *) die "usage: sne theme list|current|set NAME" ;;
+    esac
+}
+
+wall_accent() { # IMAGE -> palette.override (Ryoku-style accent from the picture)
+    have matugen || return 0
+    local hex
+    hex=$(timeout 30 matugen image "$1" --json hex --dry-run </dev/null 2>/dev/null \
+        | jq -r '[.colors.primary.dark?, .colors.dark.primary?, .colors.primary.default?] | map(select(. != null)) | .[0] | if type=="object" then (.color // .hex // empty) else . end' 2>/dev/null \
+        | tr -d '#' | head -1)
+    [[ $hex =~ ^[0-9a-fA-F]{6}$ ]] && printf 'accent=%s\naccent2=%s\nsun=%s\n' "$hex" "$hex" "$hex" >"$RKC/palette.override"
+    return 0
+}
+
+wall_apply() { # IMAGE
+    if [[ $(realpath "$1") == "$(realpath "$DEFAULT_WALL" 2>/dev/null)" ]]; then
+        settings_set WALLPAPER ""          # empty = the default (follows Sneh updates)
+    else
+        settings_set WALLPAPER "$1"
+    fi
+    if [[ $(realpath "$1") == "$(realpath "$DEFAULT_WALL" 2>/dev/null)" && $(settings_get THEME dusk) == dusk ]]; then
+        rm -f "$RKC/palette.override"      # dusk ridge was drawn in the dusk palette
+    else
+        wall_accent "$1"
+    fi
+    render_templates "$(settings_get THEME dusk)"; render_wallpaper; reload_desktop
+}
+
+picker_ini() { # [LINE_HEIGHT] - the launcher's look, with icons on (thumbnails, app icons)
+    local lh=${1:-64} f=$CACHE/fuzzel-picker-${1:-64}.ini
+    mkdir -p "$CACHE"
+    printf 'include=%s
+[main]
+icons-enabled=yes
+line-height=%s
+' "$CONF/fuzzel/fuzzel.ini" "$lh" >"$f"
+    echo "$f"
+}
+
+wall_list() { # Sneh's own first, then yours and any downloaded sets
+    [[ -r $DEFAULT_WALL ]] && echo "$DEFAULT_WALL"
+    find "$WALLS" -maxdepth 2 -type f \( -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.png' -o -iname '*.webp' \) 2>/dev/null | sort
+}
+fw_count() { local f n=0; for f in "${FIREWATCH[@]}"; do [[ -s $WALLS/firewatch/$f ]] && n=$((n + 1)); done; echo $n; }
+
+cmd_wallpaper() {
+    local all=()
+    case ${1:-} in
+        set)
+            local img=${2:?usage: sne wallpaper set IMAGE}
+            [[ -r $img ]] || die "cannot read $img"
+            local dst; dst=$(realpath "$img")
+            if [[ $dst != "$WALLS"/* && $dst != "$(realpath "$DEFAULT_WALL" 2>/dev/null)" ]]; then mkdir -p "$WALLS/mine"; cp "$img" "$WALLS/mine/" && dst="$WALLS/mine/$(basename "$img")"; fi
+            wall_apply "$dst"
+            ok "wallpaper → $dst" ;;
+        fetch) # the optional Firewatch set
+            settings_set FIREWATCH yes        # remembered: first boot / login retry if offline
+            mkdir -p "$WALLS/firewatch"
+            local f got=0 args=()
+            for f in "${FIREWATCH[@]}"; do
+                [[ -s $WALLS/firewatch/$f ]] && continue
+                args+=(-o "$WALLS/firewatch/$f" "https://w.wallhaven.cc/full/${f:0:2}/wallhaven-$f")
+            done
+            if ((${#args[@]})); then
+                say "▸ downloading $(( ${#args[@]} / 3 )) Firewatch wallpapers (wallhaven.cc)"
+                curl -fsSL --retry 2 --max-time 180 --parallel --parallel-max 4 "${args[@]}" || true
+            fi
+            got=$(fw_count)
+            ((got)) || die "download failed (offline?)"
+            ok "$got Firewatch wallpapers in $WALLS/firewatch (SUPER+SHIFT+W to pick one)" ;;
+        unfetch) # remove the Firewatch set again
+            settings_set FIREWATCH no
+            [[ $(settings_get WALLPAPER) == "$WALLS/firewatch/"* ]] && wall_apply "$DEFAULT_WALL"
+            rm -rf "$WALLS/firewatch" && ok "Firewatch wallpapers removed" ;;
+        list)
+            local cur; cur=$(wall_current)
+            if ((JSON)); then wall_list | jq -Rn --arg cur "$cur" '[inputs | {path:., current:(. == $cur)}]'
+            else while read -r f; do printf '  %s %s\n' "$([[ $f == "$cur" ]] && echo "$c_acc●$c_r" || echo " ")" "$f"; done < <(wall_list); fi ;;
+        next|prev)
+            mapfile -t all < <(wall_list)
+            ((${#all[@]})) || die "no wallpapers (sne wallpaper set IMAGE)"
+            local cur i=0 j; cur=$(wall_current)
+            for j in "${!all[@]}"; do [[ ${all[$j]} == "$cur" ]] && i=$j; done
+            if [[ $1 == next ]]; then i=$(( (i + 1) % ${#all[@]} )); else i=$(( (i - 1 + ${#all[@]}) % ${#all[@]} )); fi
+            wall_apply "${all[$i]}"; ok "wallpaper → ${all[$i]}" ;;
+        pick) # fuzzel with thumbnails
+            require_desktop
+            mapfile -t all < <(wall_list)
+            mkdir -p "$CACHE/thumbs"
+            local f t sel where cur fw; cur=$(wall_current); fw=$(fw_count)
+            sel=$({ for f in "${all[@]}"; do
+                      t=$CACHE/thumbs/$(printf '%s' "$f" | md5sum | cut -c1-12).png
+                      [[ -s $t ]] || "$SYS/bin/sneh-wallpaper" thumb "$f" "$t" 2>/dev/null
+                      case $f in "$DEFAULT_WALL") where=sneh ;; *) where=$(basename "$(dirname "$f")") ;; esac
+                      printf '%s\0icon\x1f%s\n' "$([[ $f == "$cur" ]] && echo '● ')$(basename "${f%.*}")  ·  $where" "$t"
+                    done
+                    ((fw)) || printf '%s\0icon\x1f%s\n' "get the Firewatch set  ·  14 pictures, wallhaven.cc" "folder-download"
+                  } | fuzzel --config="$(picker_ini)" --dmenu --minimal-lines --index --prompt '󰸉  ' --placeholder 'wallpaper' --lines 6 --width 46 2>/dev/null) || return 0
+            [[ $sel =~ ^[0-9]+$ ]] || return 0
+            if ((sel >= ${#all[@]})); then
+                notify-send -a sneh "Firewatch wallpapers" "downloading 14 pictures…"
+                if cmd_wallpaper fetch >/dev/null 2>&1; then notify-send -a sneh "Firewatch wallpapers" "ready · SUPER+SHIFT+W"; cmd_wallpaper pick
+                else notify-send -a sneh "Firewatch wallpapers" "download failed (offline?)"; fi
+                return 0
+            fi
+            wall_apply "${all[$sel]}"
+            return 0 ;;
+        clock)
+            case ${2:-} in on|off) settings_set CLOCK "$2"; start_wallpaper; ok "wallpaper clock $2" ;; *) die "usage: sne wallpaper clock on|off" ;; esac ;;
+        daemon) wall_daemon ;;
+        start) start_wallpaper ;;   # used by the session autostart
+        reset)
+            settings_set WALLPAPER ""; rm -f "$RKC/palette.override"
+            render_templates "$(settings_get THEME dusk)"; render_wallpaper; reload_desktop
+            ok "wallpaper → dusk ridge (Sneh's own)" ;;
+        *) die "usage: sne wallpaper pick|next|prev|set IMAGE|fetch|unfetch|list|clock on|off|reset" ;;
+    esac
+}
+
+# ------------------------------------------------------------------ vnc
+vnc_apply() {
+    local bind addr pass key=$CONF/wayvnc/rsa_key.pem
+    bind=$(settings_get VNC_BIND lan)
+    case $bind in
+        lan) addr=0.0.0.0 ;;
+        localhost) addr=127.0.0.1 ;;
+        tailscale) addr=$(tailscale ip -4 2>/dev/null | head -1); addr=${addr:-127.0.0.1} ;;
+        *) addr=127.0.0.1 ;;
+    esac
+    pass=$(cat "$RKC/vnc.pass" 2>/dev/null)
+    [[ -n $pass ]] || die "no VNC password set (sne vnc password)"
+    mkdir -p "$CONF/wayvnc"; chmod 700 "$CONF/wayvnc"
+    [[ -s $key ]] || ssh-keygen -q -m pem -t rsa -b 3072 -N "" -f "$key" >/dev/null
+    rm -f "$key.pub"
+    umask 077
+    cat >"$CONF/wayvnc/config" <<EOF
+# generated by sne vnc apply
+address=$addr
+port=5900
+enable_auth=true
+username=$(id -un)
+password=$pass
+rsa_private_key_file=$key
+EOF
+}
+
+vnc_daemon() { # supervised wayvnc, started from the Hyprland autostart
+    mkdir -p "$STATE" "$CACHE"
+    exec 9>"$CACHE/vnc.lock"
+    flock -n 9 || exit 0
+    local out
+    while desktop_running; do
+        if [[ $(settings_get VNC_ENABLED yes) != yes ]]; then sleep 5; continue; fi
+        vnc_apply 2>>"$STATE/wayvnc.log" || { sleep 10; continue; }
+        out=$(gui_output)
+        [[ -n $out ]] || { sleep 2; continue; }
+        printf '%s wayvnc on %s (%s)\n' "$(date -Is)" "$out" "$(settings_get VNC_BIND lan)" >>"$STATE/wayvnc.log"
+        wayvnc -C "$CONF/wayvnc/config" -o "$out" -f 30 >>"$STATE/wayvnc.log" 2>&1
+        sleep 2
+        # keep the log bounded
+        [[ $(stat -c %s "$STATE/wayvnc.log" 2>/dev/null || echo 0) -gt 2000000 ]] && : >"$STATE/wayvnc.log"
+    done
+}
+
+cmd_vnc() {
+    case ${1:-status} in
+        status)
+            local running=false; pgrep -u "$(id -u)" -x wayvnc >/dev/null && running=true
+            if ((JSON)); then
+                jq -cn --argjson r $running --arg e "$(settings_get VNC_ENABLED yes)" --arg b "$(settings_get VNC_BIND lan)" \
+                    --arg res "$(settings_get VNC_RESOLUTION 1600x900)" --arg o "$(gui_output 2>/dev/null)" \
+                    '{running:$r,enabled:($e=="yes"),bind:$b,resolution:$res,output:$o,port:5900}'
+            else
+                printf 'vnc: %s  enabled=%s bind=%s resolution=%s port=5900\n' "$([[ $running == true ]] && echo running || echo stopped)" \
+                    "$(settings_get VNC_ENABLED yes)" "$(settings_get VNC_BIND lan)" "$(settings_get VNC_RESOLUTION 1600x900)"
+            fi ;;
+        on)  settings_set VNC_ENABLED yes; desktop_running && ! pgrep -u "$(id -u)" -f 'sne vnc daemon' >/dev/null && { gui_env; setsid -f "$0" vnc daemon >/dev/null 2>&1; }; ok "vnc enabled" ;;
+        off) settings_set VNC_ENABLED no; pkill -u "$(id -u)" -x wayvnc; ok "vnc disabled" ;;
+        restart) pkill -u "$(id -u)" -x wayvnc; ok "vnc restarting" ;;
+        password)
+            local p=${2:-}
+            if [[ -z $p ]]; then read -rsp 'new VNC password: ' p; echo; fi
+            ((${#p} >= 6)) || die "password needs at least 6 characters"
+            mkdir -p "$RKC"; (umask 077; printf '%s' "$p" >"$RKC/vnc.pass")
+            vnc_apply; pkill -u "$(id -u)" -x wayvnc; ok "vnc password changed (clients reconnect)" ;;
+        resolution)
+            local r=${2:?usage: sne vnc resolution WIDTHxHEIGHT}
+            [[ $r =~ ^[0-9]{3,4}x[0-9]{3,4}$ ]] || die "format: 1920x1080"
+            settings_set VNC_RESOLUTION "$r"; write_hypr_settings
+            render_templates "$(settings_get THEME dusk)"; render_wallpaper; reload_desktop
+            ok "resolution → $r" ;;
+        bind)
+            local b=${2:?usage: sne vnc bind lan|localhost|tailscale}
+            [[ $b =~ ^(lan|localhost|tailscale)$ ]] || die "bind must be lan, localhost or tailscale"
+            settings_set VNC_BIND "$b"; vnc_apply; pkill -u "$(id -u)" -x wayvnc; ok "vnc bind → $b" ;;
+        apply) vnc_apply ;;
+        daemon) vnc_daemon ;;
+        *) die "usage: sne vnc status|on|off|restart|password [P]|resolution WxH|bind lan|localhost|tailscale" ;;
+    esac
+}
+
+# ------------------------------------------------------------------ desktop
+cmd_desktop() {
+    case ${1:-status} in
+        status)
+            local r=false; desktop_running && r=true
+            if ((JSON)); then jq -cn --argjson r $r --arg o "$(gui_output 2>/dev/null)" --arg p "$(profile)" '{running:$r,output:$o,profile:$p}'
+            else echo "desktop: $([[ $r == true ]] && echo running || echo stopped) ($(profile))"; fi ;;
+        off)
+            touch "$RKC/desktop.off"
+            desktop_running && { gui_env; hdispatch 'hl.dsp.exit()' || pkill -u "$(id -u)" -x Hyprland; }
+            ok "desktop stopped (frees ~250 MB for agents). sne desktop on to start it again" ;;
+        on)  rm -f "$RKC/desktop.off"; ok "desktop starting (≈5 s)" ;;
+        restart) desktop_running && { gui_env; hdispatch 'hl.dsp.exit()'; }; rm -f "$RKC/desktop.off"; ok "desktop restarting" ;;
+        *) die "usage: sne desktop status|on|off|restart" ;;
+    esac
+}
+
+cmd_perf() {
+    case ${1:-status} in
+        vnc|fast|off) settings_set ANIMATIONS off; write_hypr_settings; reload_desktop; ok "animations off (best over slow VNC links)" ;;
+        normal|smooth|on) settings_set ANIMATIONS on; write_hypr_settings; reload_desktop; ok "animations on" ;;
+        status) if ((JSON)); then jq -cn --arg a "$(settings_get ANIMATIONS on)" '{animations:$a}'; else echo "animations: $(settings_get ANIMATIONS on)"; fi ;;
+        *) die "usage: sne perf vnc|normal|status" ;;
+    esac
+}
+
+# ------------------------------------------------------------------ gui (for agents)
+key_to_wtype() { # "ctrl+shift+t" -> wtype args
+    local combo=${1,,} part mods=() key="" out=()
+    IFS='+' read -ra parts <<<"$combo"
+    for part in "${parts[@]}"; do
+        case $part in
+            ctrl|control) mods+=(ctrl) ;; shift) mods+=(shift) ;; alt) mods+=(alt) ;;
+            super|win|logo|meta|mod) mods+=(logo) ;;
+            enter|return) key=Return ;; esc|escape) key=Escape ;; tab) key=Tab ;; space) key=space ;;
+            backspace|bksp) key=BackSpace ;; delete|del) key=Delete ;; home) key=Home ;; end) key=End ;;
+            pageup|pgup) key=Prior ;; pagedown|pgdn) key=Next ;; up) key=Up ;; down) key=Down ;;
+            left) key=Left ;; right) key=Right ;; insert) key=Insert ;;
+            f[0-9]|f1[0-2]) key=F${part#f} ;;
+            *) key=$part ;;
+        esac
+    done
+    for part in "${mods[@]+"${mods[@]}"}"; do out+=(-M "$part"); done
+    [[ -n $key ]] && out+=(-k "$key")
+    for part in "${mods[@]+"${mods[@]}"}"; do out+=(-m "$part"); done
+    printf '%s\n' "${out[@]}"
+}
+
+cmd_gui() {
+    local sub=${1:-help}; shift || true
+    [[ $sub == help ]] || require_desktop
+    case $sub in
+        screenshot|shot)
+            need grim
+            local f=${1:-} scale=${RK_SHOT_SCALE:-1} out
+            [[ -n $f ]] || { mkdir -p "$CACHE/shots"; f=$CACHE/shots/shot-$(date +%Y%m%d-%H%M%S).png; }
+            out=$(gui_output)
+            grim -s "$scale" ${out:+-o "$out"} "$f" || die "screenshot failed"
+            if ((JSON)); then jq -cn --arg p "$f" --arg o "$out" --arg s "$scale" '{ok:true,path:$p,output:$o,scale:($s|tonumber)}'; else echo "$f"; fi ;;
+        monitors) hyprctl -j monitors | jq -c '[.[] | {name,width,height,refreshRate,x,y,scale,focused,activeWorkspace:.activeWorkspace.id}]' ;;
+        windows|clients) hyprctl -j clients | jq -c '[.[] | {address,class,title,workspace:.workspace.id,at,size,floating,fullscreen,focusHistoryID}] | sort_by(.focusHistoryID)' ;;
+        active) hyprctl -j activewindow | jq -c '{address,class,title,workspace:.workspace.id,at,size}' ;;
+        cursor) hyprctl -j cursorpos ;;
+        move)
+            local x=${1:?x} y=${2:?y}
+            [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || die "coordinates must be integers"
+            hdispatch "hl.dsp.cursor.move({ x = $x, y = $y })"; ok "cursor → $x,$y" ;;
+        click)
+            local x=${1:-} y=${2:-} btn=${3:-left} code
+            case $btn in left) code=0xC0 ;; right) code=0xC1 ;; middle) code=0xC2 ;; double) code=0xC0 ;; *) die "button: left|right|middle|double" ;; esac
+            if [[ -n $x ]]; then
+                [[ $x =~ ^[0-9]+$ && $y =~ ^[0-9]+$ ]] || die "coordinates must be integers"
+                hdispatch "hl.dsp.cursor.move({ x = $x, y = $y })"; sleep 0.05
+            fi
+            need ydotool
+            pgrep -u "$(id -u)" -x ydotoold >/dev/null || { setsid -f ydotoold -p "$YDOTOOL_SOCKET" -o "$(id -u):$(id -g)" >/dev/null 2>&1; sleep 0.5; }
+            ydotool click "$code" >/dev/null || die "click failed (is ydotoold running? user in 'input' group?)"
+            [[ $btn == double ]] && ydotool click "$code" >/dev/null
+            ok "click $btn${x:+ at $x,$y}" ;;
+        scroll) # N > 0 scrolls down, N < 0 up
+            need ydotool
+            local dy=${1:-3}
+            [[ $dy =~ ^-?[0-9]+$ ]] || die "usage: sne gui scroll [N]  (N>0 down, N<0 up)"
+            pgrep -u "$(id -u)" -x ydotoold >/dev/null || { setsid -f ydotoold -p "$YDOTOOL_SOCKET" -o "$(id -u):$(id -g)" >/dev/null 2>&1; sleep 0.5; }
+            # a warped cursor sends no motion: nudge it so GTK apps know what's under it
+            ydotool mousemove -x 1 -y 0 >/dev/null; ydotool mousemove -x -1 -y 0 >/dev/null
+            ydotool mousemove -w -- 0 $((-dy)) >/dev/null; ok "scroll $dy" ;;
+        type)
+            need wtype; [[ $# -gt 0 ]] || die "usage: sne gui type TEXT"
+            wtype -- "$*" || die "type failed"; ok "typed ${#1} chars" ;;
+        key)
+            need wtype; local -a wa
+            mapfile -t wa < <(key_to_wtype "${1:?usage: sne gui key ctrl+shift+t}")
+            wtype "${wa[@]}" || die "key failed"; ok "key $1" ;;
+        focus)
+            local sel=${1:?usage: sne gui focus class:REGEX|title:REGEX|address:0x..}
+            [[ $sel == *:* ]] || sel="class:$sel"
+            hdispatch "hl.dsp.focus({ window = \"${sel//\"/}\" })"; ok "focus $sel" ;;
+        workspace) local n=${1:?n}; [[ $n =~ ^[0-9]+$ ]] || die "workspace must be a number"; hdispatch "hl.dsp.focus({ workspace = $n })"; ok "workspace $n" ;;
+        close) hdispatch 'hl.dsp.window.close()'; ok "closed active window" ;;
+        launch|run|exec)
+            [[ $# -gt 0 ]] || die "usage: sne gui launch CMD [ARGS]"
+            setsid -f "$@" >/dev/null 2>&1 </dev/null; ok "launched $1" ;;
+        clipboard)
+            case ${1:-get} in get) wl-paste -n 2>/dev/null ;; set) shift; printf '%s' "$*" | wl-copy; ok "clipboard set" ;; esac ;;
+        notify) notify-send -a sneh "${1:-sneh}" "${2:-}"; ok "notified" ;;
+        help|*)
+            cat <<EOF
+sne gui — see and drive the desktop (works over SSH; coordinates = screenshot pixels)
+  screenshot [FILE]        PNG of the desktop (RK_SHOT_SCALE=0.5 for smaller images)
+  monitors | windows | active | cursor     JSON state from Hyprland
+  move X Y | click [X Y] [left|right|middle|double] | scroll [N]
+  type TEXT | key COMBO (e.g. super+return, ctrl+shift+t, enter)
+  focus class:REGEX | workspace N | close | launch CMD... | clipboard get|set TEXT | notify TITLE [BODY]
+EOF
+            ;;
+    esac
+}
+
+# ------------------------------------------------------------------ status
+cmd_status() {
+    local mt ma st sf zu=0 zc=0 temp=null load up disk ip
+    mt=$(awk '/MemTotal/ {print $2}' /proc/meminfo); ma=$(awk '/MemAvailable/ {print $2}' /proc/meminfo)
+    st=$(awk '/SwapTotal/ {print $2}' /proc/meminfo); sf=$(awk '/SwapFree/ {print $2}' /proc/meminfo)
+    if [[ -r /sys/block/zram0/mm_stat ]]; then read -r zu zc _ < /sys/block/zram0/mm_stat; fi
+    local t best=0
+    for t in /sys/class/thermal/thermal_zone*/temp /sys/class/hwmon/hwmon*/temp1_input; do
+        [[ -r $t ]] || continue; local v; v=$(cat "$t" 2>/dev/null) || continue
+        ((v > best)) && best=$v
+    done
+    ((best > 0)) && temp=$((best / 1000))
+    load=$(cut -d' ' -f1-3 /proc/loadavg)
+    up=$(awk '{print int($1)}' /proc/uptime)
+    disk=$(df -B1 --output=size,used,avail / | tail -1)
+    ip=$(ip -4 -o addr show scope global 2>/dev/null | awk '{split($4,a,"/"); print $2"="a[1]}' | paste -sd,)
+    local svc s states=()
+    for svc in sshd NetworkManager avahi-daemon earlyoom greetd tailscaled; do
+        s=$(systemctl is-active "$svc" 2>/dev/null); states+=("$svc=$s")
+    done
+    local dr=false vr=false agents
+    desktop_running && dr=true
+    pgrep -u "$(id -u)" -x wayvnc >/dev/null && vr=true
+    agents=$(agent_count)
+    if ((JSON)); then
+        jq -cn --arg host "$(cat /proc/sys/kernel/hostname)" --arg ver "$VERSION" --arg prof "$(profile)" --arg load "$load" --argjson up "$up" \
+            --argjson mt "$mt" --argjson ma "$ma" --argjson st "$st" --argjson sf "$sf" --argjson zu "$zu" --argjson zc "$zc" \
+            --argjson temp "$temp" --arg disk "$disk" --arg ip "$ip" --arg svc "${states[*]}" \
+            --argjson dr $dr --argjson vr $vr --argjson ag "$agents" --arg theme "$(settings_get THEME dusk)" \
+            --arg kernel "$(uname -r)" --argjson cpus "$(nproc)" '
+            ($disk | split(" ") | map(select(length>0) | tonumber)) as $d |
+            {host:$host, version:$ver, profile:$prof, kernel:$kernel, uptime_s:$up, cpus:$cpus,
+             load:($load|split(" ")|map(tonumber)),
+             memory_mb:{total:($mt/1024|floor), available:($ma/1024|floor), used:(($mt-$ma)/1024|floor)},
+             swap_mb:{total:($st/1024|floor), used:(($st-$sf)/1024|floor)},
+             zram_mb:{stored:($zu/1048576|floor), compressed:($zc/1048576|floor)},
+             temp_c:$temp,
+             disk_gb:{size:($d[0]/1e9*10|floor/10), used:($d[1]/1e9*10|floor/10), free:($d[2]/1e9*10|floor/10)},
+             ip:($ip|split(",")|map(select(length>0)|split("=")|{(.[0]):.[1]})|add // {}),
+             services:($svc|split(" ")|map(split("=")|{(.[0]):.[1]})|add),
+             desktop:$dr, vnc:$vr, agents_running:$ag, theme:$theme}'
+    else
+        printf '%sस्नेह %s%s  %s· %s · %s · up %s%s\n' "$c_acc" "$c_fg" "$(cat /proc/sys/kernel/hostname)" "$c_dim" "$(profile)" "$(uname -r)" "$(printf '%dh%02dm' $((up/3600)) $((up%3600/60)))" "$c_r"
+        printf '  load    %s (%s cpus)\n' "$load" "$(nproc)"
+        printf '  memory  %s / %s MB used · zram %s MB → %s MB\n' "$(((mt-ma)/1024))" "$((mt/1024))" "$((zu/1048576))" "$((zc/1048576))"
+        [[ $temp != null ]] && printf '  temp    %s°C\n' "$temp"
+        printf '  disk    %s\n' "$(df -h --output=used,size,pcent / | tail -1 | awk '{print $1" / "$2" ("$3")"}')"
+        printf '  ip      %s\n' "${ip:-none}"
+        printf '  desktop %s · vnc %s · agents running %s\n' "$dr" "$vr" "$agents"
+        printf '  %s%s%s\n' "$c_dim" "${states[*]}" "$c_r"
+    fi
+}
+
+# ------------------------------------------------------------------ maintenance
+cmd_update() {
+    local repo; repo=$(settings_get REPO_URL)
+    if [[ -n $repo ]]; then
+        say "▸ pulling Sneh from $repo"
+        local src=$CACHE/src
+        if [[ -d $src/.git ]]; then git -C "$src" pull --ff-only -q; else git clone -q --depth 1 "$repo" "$src"; fi
+        if [[ -d $src/system ]]; then
+            sudo rsync -a --delete --exclude rootfs "$src/system/" "$SYS/" && sudo chmod 755 "$SYS"/bin/*
+            sudo rsync -a "$src/system/rootfs/" / 2>/dev/null || true
+        fi
+    fi
+    say "▸ system packages"
+    sudo pacman -Syu --noconfirm
+    fuzzel_needs_fix && { cmd_fix fuzzel || true; }
+    if [[ ,$(settings_get AGENTS claude,opencode), == *,claude,* ]] && have claude; then say "▸ claude code"; claude update 2>/dev/null || true; fi
+    if [[ ,$(settings_get AGENTS claude,opencode), == *,opencode,* ]]; then
+        say "▸ opencode"
+        cmd_agents install-opencode || true   # the installer always fetches the latest release
+    fi
+    say "▸ cleaning package cache"
+    sudo pacman -Sc --noconfirm >/dev/null 2>&1 || true
+    sudo find /var/cache/pacman/pkg -type f -name '*.pkg.tar*' -delete 2>/dev/null || true
+    render_templates "$(settings_get THEME dusk)"; write_hypr_settings; reload_desktop
+    ok "up to date ($VERSION)"
+}
+
+# fuzzel 1.15.0 ignores the mouse wheel (upstream #790, fixed after 1.15.0).
+# Build it with the two-line upstream fix ($SYS/patches/fuzzel) until Arch ships
+# a fixed release; the build tools are removed again afterwards.
+fuzzel_needs_fix() { local v; v=$(pacman -Q fuzzel 2>/dev/null | cut -d' ' -f2); [[ $v == 1.15.0-* && $v != *.1 ]]; }
+cmd_fix() {
+    case ${1:-} in
+        fuzzel)
+            if ! fuzzel_needs_fix; then ok "fuzzel: nothing to fix ($(pacman -Q fuzzel 2>/dev/null))"; return 0; fi
+            say "▸ fuzzel: building the mouse-wheel fix (about a minute)"
+            local need=() p d rc=0
+            for p in gcc make fakeroot patch pkgconf meson ninja scdoc tllist wayland-protocols; do pacman -Q "$p" &>/dev/null || need+=("$p"); done
+            if ((${#need[@]})); then sudo pacman -S --needed --noconfirm --asdeps "${need[@]}" >/dev/null || { echo "fuzzel: can't get the build tools (offline?)" >&2; return 1; }; fi
+            d=$(mktemp -d); cp "$SYS/patches/fuzzel/"* "$d/"
+            ( cd "$d" && makepkg -f --noconfirm >"$d/build.log" 2>&1 ) && sudo pacman -U --noconfirm "$d"/fuzzel-*.pkg.tar.zst >/dev/null || rc=1
+            ((${#need[@]})) && sudo pacman -Rns --noconfirm "${need[@]}" >/dev/null 2>&1
+            ((rc == 0)) || { echo "fuzzel: build failed, see $d/build.log" >&2; return 1; }
+            rm -rf "$d"; ok "fuzzel: mouse wheel fixed ($(pacman -Q fuzzel))" ;;
+        *) die "usage: sne fix fuzzel" ;;
+    esac
+}
+
+cmd_snapshot() {
+    need snapper
+    case ${1:-list} in
+        list) if ((JSON)); then sudo snapper -c root --jsonout list 2>/dev/null || sudo snapper -c root list; else sudo snapper -c root list; fi ;;
+        create) sudo snapper -c root create -c number -d "${2:-sne manual}" && ok "snapshot created" ;;
+        diff) sudo snapper -c root status "${2:?usage: sne snapshot diff N}..0" ;;
+        undo) sudo snapper -c root undochange "${2:?usage: sne snapshot undo N}..0" && ok "files restored to snapshot $2 (reboot if system files changed)" ;;
+        *) die "usage: sne snapshot list|create [DESC]|diff N|undo N" ;;
+    esac
+}
+
+cmd_logs() {
+    case ${1:-session} in
+        session) tail -n "${2:-80}" "$STATE/session.log" ;;
+        vnc|wayvnc) tail -n "${2:-80}" "$STATE/wayvnc.log" ;;
+        hypr|hyprland) gui_env; tail -n "${2:-80}" "$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/hyprland.log" ;;
+        install) sudo cat /var/log/sneh-install.log 2>/dev/null || echo "no install log" ;;
+        firstboot) journalctl -b -u sneh-firstboot --no-pager -n "${2:-80}" ;;
+        *) journalctl -u "$1" --no-pager -n "${2:-80}" ;;
+    esac
+}
+
+cmd_agents() {
+    case ${1:-status} in
+        link)
+            mkdir -p "$HOME/.claude/skills" "$CONF/opencode"
+            if [[ ! -e $HOME/.claude/CLAUDE.md ]] || grep -q 'sneh' "$HOME/.claude/CLAUDE.md"; then
+                printf '@%s/agents/AGENTS.md\n\n# Your notes (kept across sne updates)\n' "$SYS" >"$HOME/.claude/CLAUDE.md.sneh"
+                [[ -e $HOME/.claude/CLAUDE.md ]] || mv "$HOME/.claude/CLAUDE.md.sneh" "$HOME/.claude/CLAUDE.md"
+                rm -f "$HOME/.claude/CLAUDE.md.sneh"
+            fi
+            ln -sfn "$SYS/agents/AGENTS.md" "$CONF/opencode/AGENTS.md"
+            # Claude Code status line -> plan usage for the bar (only if you have none)
+            local cs=$HOME/.claude/settings.json
+            [[ -s $cs ]] || echo '{}' >"$cs"
+            if jq -e '.statusLine == null' "$cs" >/dev/null 2>&1; then
+                jq --arg c "$SYS/bin/sneh-claude-status" '.statusLine = {type:"command", command:$c, padding:0}' "$cs" >"$cs.tmp" && mv "$cs.tmp" "$cs"
+            fi
+            local s
+            for s in "$SYS"/agents/skills/*/; do ln -sfn "$s" "$HOME/.claude/skills/$(basename "$s")"; done
+            ok "agent docs + skills linked" ;;
+        install-opencode)
+            # Official OpenCode 2 installer -> ~/.opencode/bin (it picks the no-AVX2 build
+            # on old CPUs). Not the pacman package: opencode can't update itself from that.
+            # Not opencode.ai/install: that is OpenCode 1, which can't read a v2 database.
+            if pacman -Qq opencode &>/dev/null; then sudo pacman -Rns --noconfirm opencode >/dev/null || true; fi
+            curl -fsSL --max-time 120 https://opencode.ai/v2/install | bash -s -- --no-modify-path >/dev/null || die "opencode install failed"
+            mkdir -p "$HOME/.local/bin"
+            ln -sfn "$HOME/.opencode/bin/opencode" "$HOME/.local/bin/opencode"
+            ok "opencode $("$HOME/.opencode/bin/opencode" --version 2>/dev/null | head -1) installed" ;;
+        status)
+            local cl=null oc=null
+            have claude && cl=$(jq -Rn --arg v "$(claude --version 2>/dev/null | head -1)" '$v')
+            have opencode && oc=$(jq -Rn --arg v "$(opencode --version 2>/dev/null | head -1)" '$v')
+            if ((JSON)); then jq -cn --argjson c "$cl" --argjson o "$oc" --argjson n "$(agent_count)" '{claude:$c,opencode:$o,running:$n}'
+            else echo "claude:   ${cl//\"/}"; echo "opencode: ${oc//\"/}"; fi ;;
+        *) die "usage: sne agents status|link|install-opencode" ;;
+    esac
+}
+
+# The quick menu (SUPER+/): every shortcut, searchable; Enter runs it.
+# keys|what it does|command to run (empty = just information)
+KEYS=(
+  "SUPER + /|this menu: keys and shortcuts|"
+  "SUPER + RETURN|terminal|footclient"
+  "SUPER + 1  /  SUPER + 2|desk (wallpaper, bar, dock)  /  agents (plain, full-screen tmux)|"
+  "SUPER + A|agents workspace · again: another agent terminal, side by side|sne ws agent"
+  "SUPER + SHIFT + 1 / 2|send window to desk / agents|"
+  "SUPER + SPACE|app launcher|fuzzel"
+  "bar: network icon|network menu: Wi-Fi, connect, details|sne net"
+  "SUPER + E|files (Thunar) · in a terminal: y (yazi)|sne app files"
+  "sne apps add NAME|install an optional app: vlc mpv firefox images spotify files|"
+  "VLC  /  imv|videos + music  /  pictures (open them from Thunar)|"
+  "SUPER + SHIFT + W|wallpaper picker|sne wallpaper pick"
+  "SUPER + ALT + W|next wallpaper|sne wallpaper next"
+  "SUPER + SHIFT + T|system monitor (btop)|footclient -e btop"
+  "ALT + TAB  /  SUPER + TAB|switch window (hidden ones too) → fullscreen|sne win switch"
+  "SUPER + D|desk: tuck all windows away (again: bring back) · on agents: go to the desk|sne win desktop"
+  "SUPER + Q|close window (Spotify: hide to background)|sne win close"
+  "SUPER + SHIFT + Q|really quit (also Spotify)|sne win quit"
+  "SUPER + F|fullscreen|hyprctl dispatch 'hl.dsp.window.fullscreen()'"
+  "SUPER + V|float / tile window|hyprctl dispatch 'hl.dsp.window.float({ action = \"toggle\" })'"
+  "SUPER + J|swap split direction|"
+  "SUPER + arrows  /  H L K|move focus|"
+  "SUPER + SHIFT + arrows|move window|"
+  "SUPER + S|scratchpad|hyprctl dispatch 'hl.dsp.workspace.toggle_special(\"scratch\")'"
+  "SUPER + drag  /  right-drag|move / resize window|"
+  "SUPER + N|dismiss notifications|makoctl dismiss --all"
+  "SUPER + SHIFT + S|screenshot a region → clipboard|"
+  "PRINT|screenshot → file + clipboard|"
+  "SUPER + CTRL + A|VNC mode: animations off|sne perf vnc"
+  "SUPER + CTRL + SHIFT + A|animations back on|sne perf normal"
+  "SUPER + SHIFT + R|rebuild config (sne setup)|sne setup"
+  "SUPER + SHIFT + E|exit Hyprland (it restarts)|"
+  "bar: logo (top left)|this menu · right-click: launcher|"
+  "bar: agents pill|Claude plan usage + reset time · click: agents tmux|footclient -e sne attach"
+  "bar: player|click play/pause · right-click next · middle previous|playerctl play-pause"
+  "tmux: CTRL+A then c / & / d|new tab / close tab / detach|"
+  "sne theme set NAME|ink rose red-august teal aether olive blue-hour|"
+  "Spotify (app)|the official client: launcher → Spotify (~300 MB RAM while open)|spotify-launcher"
+  "sne spotify on|this PC becomes a speaker in the Spotify app|sne spotify on"
+  "sne desktop off|stop the desktop, give agents all the RAM|"
+)
+cmd_keys() {
+    local k a b c
+    if ((JSON)) || [[ ${1:-} == --list ]] || ! desktop_running; then
+        if ((JSON)); then
+            for k in "${KEYS[@]}"; do IFS='|' read -r a b c <<<"$k"; jq -cn --arg k "$a" --arg d "$b" '{keys:$k,does:$d}'; done | jq -cs .
+        else
+            for k in "${KEYS[@]}"; do IFS='|' read -r a b c <<<"$k"; printf '  %s%-30s%s %s\n' "$c_acc" "$a" "$c_r" "$b"; done
+        fi
+        return 0
+    fi
+    gui_env
+    local i sel
+    sel=$(for i in "${!KEYS[@]}"; do IFS='|' read -r a b c <<<"${KEYS[$i]}"; printf '%s%*s  %s\n' "$a" $(( ${#a} < 28 ? 28 - ${#a} : 0 )) '' "$b"; done \
+        | fuzzel --dmenu --minimal-lines --index --font 'JetBrains Mono:size=11' --prompt 'स्नेह  ' --placeholder 'keys & shortcuts · type to search · Enter runs it' --width 80 --lines 16 2>/dev/null) || return 0
+    [[ $sel =~ ^[0-9]+$ ]] || return 0
+    IFS='|' read -r a b c <<<"${KEYS[$sel]}"
+    [[ -n $c ]] && setsid -f bash -c "$c" >/dev/null 2>&1
+    return 0
+}
+
+# Spotify Connect (spotifyd): the PC shows up as a speaker in the Spotify app
+# on your phone or laptop; the bar's player module controls it over MPRIS.
+hostname_() { cat /proc/sys/kernel/hostname; }
+spotify_config() {
+    mkdir -p "$CONF/spotifyd" "$CACHE/spotifyd"
+    local backend=alsa
+    [[ $(profile) == laptop ]] && backend=pulseaudio
+    printf '%s\n' \
+        '# generated by sne (sne spotify on) - a Spotify Connect speaker named after this PC' \
+        '[global]' \
+        "device_name = \"$(hostname_)\"" \
+        'device_type = "computer"' \
+        "backend = \"$backend\"" \
+        'bitrate = 160' \
+        'volume_normalisation = true' \
+        'use_mpris = true' \
+        'dbus_type = "session"' \
+        "cache_path = \"$CACHE/spotifyd\"" \
+        'max_cache_size = 300000000' >"$CONF/spotifyd/spotifyd.conf"
+}
+cmd_spotify() {
+    local unit=spotifyd.service
+    case ${1:-status} in
+        on)  have spotifyd || die "spotifyd not installed (sudo pacman -S spotifyd)"
+             spotify_config; settings_set SPOTIFY on
+             systemctl --user enable "$unit" >/dev/null 2>&1; systemctl --user restart "$unit" >/dev/null 2>&1
+             ok "Spotify Connect on: choose \"$(hostname_)\" as the speaker in the Spotify app (Premium)" ;;
+        off) systemctl --user disable --now "$unit" >/dev/null 2>&1; settings_set SPOTIFY off; ok "Spotify Connect off" ;;
+        status)
+            local st; st=$(systemctl --user is-active "$unit" 2>/dev/null)
+            if ((JSON)); then jq -cn --arg s "$st" --arg p "$(playerctl -p spotifyd metadata --format '{{artist}} — {{title}}' 2>/dev/null)" '{service:$s,playing:$p}'
+            else echo "spotifyd: $st"; playerctl -p spotifyd metadata --format '  {{status}}: {{artist}} — {{title}}' 2>/dev/null; fi ;;
+        *) die "usage: sne spotify on|off|status" ;;
+    esac
+}
+
+# ------------------------------------------------------------------ windows
+# SUPER+Q goes through `sne win close`: apps in KEEP_ALIVE (default: Spotify)
+# are hidden to the background instead of quit; ALT+TAB brings them back.
+# ALT+TAB = `sne win switch`: every window, hidden ones included; the one you
+# pick comes to this workspace, focused and fullscreen.
+# SUPER+D = `sne win desktop`: jump to an empty workspace, press again to return.
+win_json() { hyprctl -j clients 2>/dev/null || echo '[]'; }
+
+cmd_win() {
+    require_desktop
+    local keep; keep=$(settings_get KEEP_ALIVE 'spotify|Spotify')
+    case ${1:-} in
+        close)
+            local cls addr
+            read -r cls addr < <(hyprctl -j activewindow 2>/dev/null | jq -r '"\(.class // "") \(.address // "")"')
+            [[ -n $addr ]] || return 0
+            if [[ -n $keep && $cls =~ ^($keep)$ ]]; then
+                hdispatch "hl.dsp.window.move({ workspace = \"special:bg\", window = \"address:$addr\", follow = false })"
+                have notify-send && notify-send -a sneh -t 2500 "${cls^} keeps running" "hidden · ALT+TAB brings it back · SUPER+SHIFT+Q quits it"
+            else
+                hdispatch 'hl.dsp.window.close()'
+            fi ;;
+        quit) hdispatch 'hl.dsp.window.close()' ;;
+        switch)
+            local cur list sel addr ws
+            cur=$(hyprctl -j activeworkspace 2>/dev/null | jq -r '.id')
+            # most recently used first; hidden (special:bg) ones marked
+            list=$(win_json | jq -c 'map(select(.mapped != false)) | sort_by(.focusHistoryID) | .[]')
+            [[ -n $list ]] || { notify-send -a sneh "No windows open" "SUPER+RETURN for a terminal"; return 0; }
+            sel=$(jq -r '
+                (.workspace.name) as $w
+                | (if $w | startswith("special:") then "background" else "workspace \($w)" end) as $where
+                | "\(.title // .class | .[0:60])   ·   \(.class)   ·   \($where)\u0000icon\u001f\(.class | ascii_downcase | ({"footclient":"foot","spotify":"spotify-client"}[.] // .))"' <<<"$list" \
+                | fuzzel --config="$(picker_ini 40)" --dmenu --minimal-lines --index --prompt '󰖯  ' --placeholder 'switch to · Enter opens it fullscreen' \
+                         --width 64 --lines 10 --select-index 1 2>/dev/null) || return 0
+            [[ $sel =~ ^[0-9]+$ ]] || return 0
+            read -r addr ws < <(sed -n "$((sel + 1))p" <<<"$list" | jq -r '"\(.address) \(.workspace.name)"')
+            [[ $ws == "$cur" ]] || hdispatch "hl.dsp.window.move({ workspace = $cur, window = \"address:$addr\" })"
+            hdispatch "hl.dsp.focus({ window = \"address:$addr\" })"
+            hdispatch 'hl.dsp.window.fullscreen({ mode = "fullscreen", action = "set" })' ;;
+        desktop) # SUPER+D on the desk: tuck every window away / bring them back
+            local cur ids
+            cur=$(hyprctl -j activeworkspace 2>/dev/null | jq -r '.id')
+            # on the agents workspace SUPER+D just goes back to the desk (= SUPER+1)
+            if [[ $cur == 2 ]]; then hdispatch 'hl.dsp.focus({ workspace = 1 })'; return 0; fi
+            ids=$(win_json | jq -r --argjson c "$cur" '.[] | select(.workspace.id == $c) | .address')
+            if [[ -n $ids ]]; then
+                for a in $ids; do hdispatch "hl.dsp.window.move({ workspace = \"special:desk\", window = \"address:$a\", follow = false })"; done
+            else
+                for a in $(win_json | jq -r '.[] | select(.workspace.name == "special:desk") | .address'); do
+                    hdispatch "hl.dsp.window.move({ workspace = $cur, window = \"address:$a\" })"
+                done
+            fi ;;
+        list) win_json | jq '[.[] | {class, title, workspace: .workspace.name, fullscreen, address}]' ;;
+        *) die "usage: sne win switch|close|quit|desktop|list" ;;
+    esac
+}
+
+# ------------------------------------------------------------------ network menu
+# A launcher-style network menu (replaces nmtui in the bar): connection info,
+# Wi-Fi on/off, nearby networks (Enter connects; asks for the password once).
+cmd_net() {
+    need nmcli networkmanager
+    if ((JSON)) || [[ ${1:-} == status ]]; then
+        nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device | jq -Rn '[inputs | split(":") | {device:.[0], type:.[1], state:.[2], connection:.[3]}]'
+        return
+    fi
+    gui_env
+    local lines=() acts=() dev typ state con ip wifi
+    while IFS=: read -r dev typ state con; do
+        [[ $typ == ethernet || $typ == wifi ]] || continue
+        ip=$(nmcli -g IP4.ADDRESS device show "$dev" 2>/dev/null | head -1)
+        if [[ $state == connected ]]; then
+            lines+=("$([[ $typ == wifi ]] && echo 󰖩 || echo 󰈀)  $con   ·   ${ip%/*}   ·   $dev")
+        else
+            lines+=("$([[ $typ == wifi ]] && echo 󰖪 || echo 󰈂)  $dev   ·   $state")
+        fi
+        acts+=("info:$dev")
+    done < <(nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device 2>/dev/null)
+    wifi=$(nmcli radio wifi 2>/dev/null)
+    if nmcli -t -f TYPE device 2>/dev/null | grep -qx wifi; then
+        lines+=("$([[ $wifi == enabled ]] && echo "󰖪  turn Wi-Fi off" || echo "󰖩  turn Wi-Fi on")"); acts+=("toggle")
+        if [[ $wifi == enabled ]]; then
+            local inuse ssid sig sec bars
+            while IFS=: read -r inuse ssid sig sec; do
+                [[ -n $ssid ]] || continue
+                if ((sig >= 75)); then bars=▂▄▆█; elif ((sig >= 50)); then bars=▂▄▆_; elif ((sig >= 25)); then bars=▂▄__; else bars=▂___; fi
+                lines+=("$([[ $inuse == '*' ]] && echo '●' || echo ' ')  $ssid   $bars $sig%$([[ -n $sec && $sec != -- ]] && echo '   󰌾')")
+                acts+=("wifi:$ssid")
+            done < <(nmcli -t -f IN-USE,SSID,SIGNAL,SECURITY device wifi list --rescan auto 2>/dev/null | awk -F: '!seen[$2]++')
+        fi
+    fi
+    lines+=("󰒓  advanced settings (nmtui)"); acts+=("tui")
+    local sel
+    sel=$(printf '%s\n' "${lines[@]}" | fuzzel --dmenu --minimal-lines --index --prompt '󰛳  ' --placeholder 'network' --width 56 --lines 12 2>/dev/null) || return 0
+    [[ $sel =~ ^[0-9]+$ ]] || return 0
+    case ${acts[$sel]} in
+        toggle) nmcli radio wifi "$([[ $wifi == enabled ]] && echo off || echo on)" ;;
+        tui) setsid -f footclient -T network -e nmtui >/dev/null 2>&1 ;;
+        info:*) local d=${acts[$sel]#info:}
+            notify-send -a sneh "$d" "$(nmcli -g GENERAL.CONNECTION,IP4.ADDRESS,IP4.GATEWAY,IP4.DNS device show "$d" 2>/dev/null | grep -v '^$' | head -6)" ;;
+        wifi:*) local s=${acts[$sel]#wifi:} pw
+            if nmcli -t -f NAME connection show 2>/dev/null | grep -Fxq "$s"; then
+                nmcli connection up id "$s" >/dev/null 2>&1 && notify-send -a sneh "Connected" "$s" || notify-send -a sneh "Could not connect" "$s"
+            else
+                pw=$(fuzzel --dmenu --password --prompt '󰌾  ' --placeholder "password for $s" --lines 0 --width 40 </dev/null 2>/dev/null) || return 0
+                if nmcli device wifi connect "$s" ${pw:+password "$pw"} >/dev/null 2>&1; then notify-send -a sneh "Connected" "$s"
+                else notify-send -a sneh "Could not connect" "$s (wrong password?)"; fi
+            fi ;;
+    esac
+    return 0
+}
+
+# ------------------------------------------------------------------ workspaces
+# 1 = desk, 2 = agents. Hyprland runs `sne ws sync` on every workspace change:
+# the bar and dock (one waybar, toggled with SIGUSR1) show on the desk only.
+cmd_ws() {
+    gui_env
+    case ${1:-sync} in
+        desk|1)   hdispatch 'hl.dsp.focus({ workspace = 1 })' ;;
+        agents|2) hdispatch 'hl.dsp.focus({ workspace = 2 })' ;;
+        agent) # SUPER+A: go to agents; already there -> one more agent terminal, side by side
+            local id n=2
+            id=$(hyprctl -j activeworkspace 2>/dev/null | jq -r '.id')
+            if [[ $id != 2 ]]; then hdispatch 'hl.dsp.focus({ workspace = 2 })'; return 0; fi
+            # its own tmux session (agents-2, agents-3, ...) so the panes don't mirror each other
+            # reopen an agent session whose terminal was closed (it kept running), else a new one
+            local name
+            name=$(tmux ls -F '#{session_name} #{session_attached}' 2>/dev/null | awk '$1 ~ /^agents(-[0-9]+)?$/ && $2 == 0 {print $1; exit}')
+            if [[ -n $name ]]; then
+                hdispatch 'hl.dsp.layout("preselect r")' 2>/dev/null
+                setsid -f footclient -T "$name" -e "$SYS/bin/sne" attach "$name" >/dev/null 2>&1
+                return 0
+            fi
+            while tmux has-session -t "agents-$n" 2>/dev/null; do n=$((n + 1)); done
+            # split the focused window left|right (dwindle picks the long side; force it)
+            hdispatch 'hl.dsp.layout("preselect r")' 2>/dev/null
+            setsid -f footclient -T "agents-$n" -e "$SYS/bin/sne" attach "agents-$n" >/dev/null 2>&1 ;;
+        sync)
+            local id hidden=$RUNW/bar.hidden
+            mkdir -p "$RUNW"
+            id=$(hyprctl -j activeworkspace 2>/dev/null | jq -r '.id')
+            pgrep -u "$(id -u)" -x waybar >/dev/null || { rm -f "$hidden"; return 0; }
+            # arriving on an empty agents workspace: open the agents tmux there
+            if [[ $id == 2 ]] && [[ $(hyprctl -j activeworkspace 2>/dev/null | jq -r '.windows') == 0 ]]; then
+                setsid -f footclient -T agents -e "$SYS/bin/sne" attach >/dev/null 2>&1
+            fi
+            if [[ $id == 2 && ! -e $hidden ]]; then
+                pkill -u "$(id -u)" -USR1 -x waybar && touch "$hidden"
+            elif [[ $id != 2 && -e $hidden ]]; then
+                pkill -u "$(id -u)" -USR1 -x waybar && rm -f "$hidden"
+            fi ;;
+        *) die "usage: sne ws desk|agents|agent|sync" ;;
+    esac
+    return 0
+}
+
+# Optional apps (system/packages/apps.txt), chosen at flash time (APPS=...).
+apps_catalog() { sed -e 's/^\s*//' "$SYS/packages/apps.txt" | grep -E '^[a-z0-9-]+:'; }
+app_pkgs() { apps_catalog | awk -F: -v n="$1" '$1 == n {sub(/#.*/, "", $2); print $2}'; }
+cmd_apps() {
+    case ${1:-list} in
+        list)
+            local line name pkgs note inst
+            while IFS= read -r line; do
+                name=${line%%:*}; pkgs=$(app_pkgs "$name"); note=${line#*#}
+                # shellcheck disable=SC2086
+                if pacman -Q $pkgs >/dev/null 2>&1; then inst=true; else inst=false; fi
+                if ((JSON)); then jq -cn --arg n "$name" --arg d "${note# }" --argjson i "$inst" '{name:$n,installed:$i,about:$d}'
+                else printf '  %s %-8s %s%s%s\n' "$([[ $inst == true ]] && echo "$c_acc●$c_r" || echo " ")" "$name" "$c_dim" "${note# }" "$c_r"; fi
+            done < <(apps_catalog) | { if ((JSON)); then jq -cs .; else cat; fi } ;;
+        add|remove)
+            local name=${2:?usage: sne apps add|remove NAME} pkgs cur
+            pkgs=$(app_pkgs "$name"); [[ -n $pkgs ]] || die "unknown app '$name' (sne apps list)"
+            # shellcheck disable=SC2086
+            if [[ $1 == add ]]; then sudo pacman -S --needed --noconfirm $pkgs || die "install failed"
+            else sudo pacman -Rns --noconfirm $pkgs || die "remove failed"; fi
+            cur=",$(settings_get APPS files,vlc,images),"; cur=${cur//,$name,/,}
+            [[ $1 == add ]] && cur+="$name,"
+            cur=${cur#,}; settings_set APPS "${cur%,}"
+            cmd_setup >/dev/null
+            ok "$name $([[ $1 == add ]] && echo added || echo removed)" ;;
+        *) die "usage: sne apps list|add NAME|remove NAME" ;;
+    esac
+}
+
+# Open an app, or bring it back if it's already running (e.g. hidden by SUPER+Q).
+cmd_app() {
+    require_desktop
+    local cls cmd addr
+    case ${1:-} in
+        spotify) have spotify-launcher || die "Spotify isn't installed (sne apps add spotify)"; cls=spotify; cmd=spotify-launcher ;;
+        files)   if have thunar; then setsid -f thunar >/dev/null 2>&1; else setsid -f footclient -e yazi >/dev/null 2>&1; fi; return 0 ;;
+        *) die "usage: sne app spotify|files" ;;
+    esac
+    addr=$(win_json | jq -r --arg c "$cls" '[.[] | select(.class == $c)][0].address // empty')
+    if [[ -n $addr ]]; then
+        hdispatch "hl.dsp.window.move({ workspace = 1, window = \"address:$addr\" })"
+        hdispatch "hl.dsp.focus({ window = \"address:$addr\" })"
+    else
+        setsid -f "$cmd" >/dev/null 2>&1
+    fi
+}
+
+cmd_bar() { # tiny JSON emitters for waybar custom modules
+    case ${1:-} in
+        agents) # "Claude 13% · 2h 05m   opencode ●" - plan usage cached by sneh-claude-status
+            local cl oc f=$RUNW/claude.json c=null
+            cl=$(pgrep -u "$(id -u)" -c -f '(^|/)claude( |$)' 2>/dev/null); oc=$(pgrep -u "$(id -u)" -c -x opencode 2>/dev/null)
+            [[ -s $f ]] && c=$(cat "$f")
+            jq -cn --argjson cl "${cl:-0}" --argjson oc "${oc:-0}" --argjson c "$c" '
+              def two: tostring | if length < 2 then "0" + . else . end;
+              def left($t): ($t - now) as $s | if $s <= 0 then "now"
+                elif $s >= 86400 then "\(($s/86400)|floor)d \((($s%86400)/3600)|floor)h"
+                elif $s >= 3600 then "\(($s/3600)|floor)h \((($s%3600)/60)|floor|two)m"
+                else "\(($s/60)|ceil)m" end;
+              ($c // {}) as $c
+              | ($c.rate_limits.five_hour // null | if . != null and .resets_at > now then . else null end) as $h
+              | ($c.rate_limits.seven_day // null | if . != null and .resets_at > now then . else null end) as $w
+              | (if $h then "Claude \($h.used_percentage|round)% · \(left($h.resets_at))"
+                 elif $cl > 0 then "Claude ●" else "Claude" end) as $ct
+              | (if $oc > 0 then "   <span alpha=\"70%\">opencode ●</span>" else "" end) as $ot
+              | {text: ("󰚩  " + $ct + $ot),
+                 class: (if ($h.used_percentage // 0) >= 90 then "hot" elif ($h.used_percentage // 0) >= 70 then "warn"
+                         elif ($cl + $oc) > 0 or $h != null then "active" else "idle" end),
+                 tooltip: ([ "claude: \($cl) running · opencode: \($oc) running",
+                             (if $h then "5-hour limit: \($h.used_percentage|round)% used · resets in \(left($h.resets_at))" else empty end),
+                             (if $w then "weekly limit: \($w.used_percentage|round)% used · resets in \(left($w.resets_at))" else empty end),
+                             (if $h == null and $w == null then "plan usage shows after Claude Code answers once (Pro/Max)" else empty end),
+                             "click: agents tmux" ] | join("\n"))}' ;;
+        tmux) # plain text for the agents workspace's tmux status line
+            local f=$RUNW/claude.json
+            [[ -s $f ]] || { echo "claude"; return; }
+            jq -r 'def two: tostring | if length < 2 then "0" + . else . end;
+                   (.rate_limits.five_hour // null) as $h
+                   | if $h != null and $h.resets_at > now then
+                       ($h.resets_at - now) as $s
+                       | "claude \($h.used_percentage|round)% · \(($s/3600)|floor)h\((($s%3600)/60)|floor|two)m"
+                     else "claude" end' "$f" 2>/dev/null || echo claude ;;
+        weather) # wttr.in; set WEATHER_LOCATION= in settings.env (empty = by IP)
+            local loc w ic t cond place; loc=$(settings_get WEATHER_LOCATION)
+            w=$(curl -fsS --max-time 8 "https://wttr.in/${loc// /+}?format=%c|%t|%C|%l&m" 2>/dev/null) || w=
+            if [[ $w == *"|"* && $w != *Unknown* ]]; then
+                IFS='|' read -r ic t cond place <<<"$w"
+                jq -cn --arg i "${ic// /}" --arg t "${t#+}" --arg c "$cond" --arg p "$place" '{text:"\($i) \($t)", tooltip:"\($c) · \($p)"}'
+            else jq -cn '{text:"", tooltip:"weather unavailable"}'; fi ;;
+        vnc)
+            local c=0
+            pgrep -u "$(id -u)" -x wayvnc >/dev/null || { jq -cn '{text:"󰍹", class:"off", tooltip:"VNC off"}'; return; }
+            c=$(ss -Htn state established '( sport = :5900 )' 2>/dev/null | wc -l)
+            jq -cn --argjson c "$c" '{text:(if $c>0 then "󰍹 \($c)" else "󰍹" end), class:(if $c>0 then "viewing" else "on" end), tooltip:"VNC :5900 · \($c) viewer(s)"}' ;;
+    esac
+}
+
+cmd_doctor() {
+    local fails=0
+    chk() { if eval "$2" >/dev/null 2>&1; then printf '  %s✓%s %s\n' "$c_acc" "$c_r" "$1"; else printf '  %s✗%s %s %s%s%s\n' $'\e[31m' "$c_r" "$1" "$c_dim" "${3:-}" "$c_r"; fails=$((fails+1)); fi; }
+    chk "network online" "curl -fsI --max-time 5 https://archlinux.org"
+    chk "sshd active" "systemctl is-active sshd"
+    chk "mDNS (avahi) active" "systemctl is-active avahi-daemon"
+    chk "zram swap" "grep -q zram /proc/swaps"
+    chk "earlyoom active" "systemctl is-active earlyoom"
+    chk "desktop running" "desktop_running" "sne desktop on · sne logs session"
+    chk "wayvnc running" "pgrep -x wayvnc" "sne logs vnc"
+    chk "user in input group (gui click)" "id -nG | grep -qw input"
+    chk "claude installed" "have claude" "curl -fsSL https://claude.ai/install.sh | bash"
+    chk "opencode installed" "[[ -x \$HOME/.opencode/bin/opencode ]] && have opencode" "sne agents install-opencode"
+    chk "Maple Mono font" "[[ -n \$(fc-list 'Maple Mono NF') ]]" "sne fonts"
+    chk "CPU has SSE4.2 (needed by Claude Code / opencode)" "grep -qw sse4_2 /proc/cpuinfo" "CPU too old for the Bun-based agent CLIs"
+    ((fails == 0)) && ok "all good" || say "$fails check(s) failed"
+}
+
+cmd_fonts() { # Maple Mono NF, the 4 styles we use (~4 MB instead of a 200 MB font package)
+    local tmp z
+    tmp=$(mktemp -d)
+    z=${1:-}
+    if [[ -z $z ]]; then
+        curl -fsSL -o "$tmp/m.zip" https://github.com/subframe7536/maple-font/releases/latest/download/MapleMono-NF-unhinted.zip || die "download failed"
+        z=$tmp/m.zip
+    fi
+    unzip -qo -j "$z" 'MapleMono-NF-Regular.ttf' 'MapleMono-NF-Bold.ttf' 'MapleMono-NF-Italic.ttf' 'MapleMono-NF-BoldItalic.ttf' -d "$tmp/f" 2>/dev/null \
+        || unzip -qo -j "$z" '*-Regular.ttf' '*-Bold.ttf' '*-Italic.ttf' '*-BoldItalic.ttf' -d "$tmp/f" || die "unexpected zip layout"
+    sudo install -Dm644 -t /usr/local/share/fonts/maple "$tmp"/f/*.ttf
+    rm -rf "$tmp"; fc-cache -f >/dev/null 2>&1
+    ok "Maple Mono NF installed"
+}
+
+# First-run / re-run user setup. Safe to run any time (keeps your edits in *.local files).
+cmd_setup() {
+    mkdir -p "$CONF" "$STATE" "$CACHE" "$RKC"
+    local src f rel
+    for src in "$SYS"/config/*; do
+        for f in $(cd "$src" && find . -type f); do
+            rel=$(basename "$src")/${f#./}
+            mkdir -p "$(dirname "$CONF/$rel")"
+            cp -f "$src/${f#./}" "$CONF/$rel"
+        done
+    done
+    # starship lives at ~/.config/starship.toml
+    [[ -f $CONF/starship/starship.toml ]] && ln -sf "$CONF/starship/starship.toml" "$CONF/starship.toml"
+    # user override files (never overwritten)
+    [[ -e $CONF/hypr/user.lua ]] || printf -- '-- your Hyprland additions; loaded last, kept across sne setup/update\n' >"$CONF/hypr/user.lua"
+    [[ -e $CONF/fish/user.fish ]] || printf '# your fish additions\n' >"$CONF/fish/user.fish"
+    # GTK accessibility bus + dconf: ~20 MB we never use (waybar pulls them in)
+    # (masked by symlink rather than `systemctl --user mask`: that needs a running
+    # user manager, which the installer's chroot doesn't have)
+    local u units=(at-spi-dbus-bus.service)
+    # headless box: no file-chooser/screencast portals (~40 MB, D-Bus activated by GTK apps)
+    [[ $(profile) != laptop ]] && units+=(xdg-desktop-portal.service xdg-desktop-portal-gtk.service)
+    mkdir -p "$CONF/systemd/user"
+    for u in "${units[@]}"; do ln -sfn /dev/null "$CONF/systemd/user/$u"; done
+    # Spotify Connect: on unless SPOTIFY=off
+    if have spotifyd && [[ $(settings_get SPOTIFY on) != off ]]; then
+        spotify_config
+        mkdir -p "$CONF/systemd/user/default.target.wants"
+        ln -sf /usr/lib/systemd/user/spotifyd.service "$CONF/systemd/user/default.target.wants/spotifyd.service"
+    fi
+    # the official Spotify app (spotify-launcher fetches it on first run): native Wayland,
+    # since the headless edition runs without Xwayland
+    [[ -e $CONF/spotify-launcher.conf ]] || printf '%s
+' '[spotify]'         'extra_arguments = ["--enable-features=UseOzonePlatform,WaylandWindowDecorations", "--ozone-platform=wayland"]' >"$CONF/spotify-launcher.conf"
+    # folders open in Thunar; the usual home folders + sidebar bookmarks
+    have xdg-mime && xdg-mime default thunar.desktop inode/directory >/dev/null 2>&1
+    have xdg-user-dirs-update && xdg-user-dirs-update >/dev/null 2>&1
+    if have xdg-mime; then
+        have imv && xdg-mime default imv.desktop image/png image/jpeg image/webp image/gif image/bmp image/tiff image/svg+xml >/dev/null 2>&1
+        have vlc && xdg-mime default vlc.desktop video/mp4 video/x-matroska video/webm video/quicktime video/x-msvideo \
+            audio/mpeg audio/flac audio/ogg audio/x-wav audio/mp4 >/dev/null 2>&1
+    fi
+    if [[ ! -e $CONF/gtk-3.0/bookmarks ]]; then
+        mkdir -p "$CONF/gtk-3.0" "$WALLS"
+        local dd
+        for dd in DOCUMENTS DOWNLOAD PICTURES MUSIC VIDEOS; do
+            dd=$(xdg-user-dir "$dd" 2>/dev/null); [[ -n $dd && $dd != "$HOME" && -d $dd ]] && echo "file://$dd"
+        done >"$CONF/gtk-3.0/bookmarks"
+        echo "file://$WALLS Wallpapers" >>"$CONF/gtk-3.0/bookmarks"
+    fi
+    cmd_agents link >/dev/null 2>&1 || true
+    render_templates "$(settings_get THEME dusk)"
+    render_wallpaper
+    write_hypr_settings
+    [[ -s $RKC/vnc.pass ]] && vnc_apply
+    reload_desktop
+    ok "user config ready ($(profile), theme $(settings_get THEME dusk))"
+}
+
+cmd_attach() { exec tmux new-session -A -s "${1:-agents}"; }
+
+usage() {
+    cat <<EOF
+${c_acc}स्नेह${c_r} ${c_fg}sne${c_r} ${c_dim}$VERSION — the Sneh system CLI (add --json to any read command)${c_r}
+
+  status                     machine, memory, zram, temps, services, agents
+  attach [NAME]              persistent tmux session for agents (default: agents)
+  agents status|link         installed agent CLIs; relink AGENTS.md + skills
+  gui ...                    screenshot / click / type / key / windows (sne gui help)
+  desktop status|on|off|restart   stop the desktop to give agents all the RAM
+  vnc status|on|off|password|resolution WxH|bind lan|localhost|tailscale
+  theme list|current|set NAME     ink rose red-august teal aether olive blue-hour
+  keys                       quick menu of every shortcut (SUPER+/); --list prints them
+  win switch|close|quit|desktop|list   ALT+TAB switcher, hide-don't-quit, show desktop
+  ws desk|agents|sync        the two workspaces (sync: bar on desk, hidden on agents)
+  app spotify|files          open an app, or bring it back if hidden
+  apps list|add NAME|remove NAME   optional apps: files spotify vlc mpv firefox images
+  net [status]               network menu (Wi-Fi, connect); status as JSON
+  wallpaper pick|next|prev|set IMAGE|fetch|unfetch|list|clock on|off|reset
+                             dusk ridge + depth clock; fetch = optional Firewatch set
+  fix fuzzel                 build fuzzel with the upstream mouse-wheel fix (sne update does it)
+  spotify on|off|status      Spotify Connect speaker (spotifyd) + bar player
+  perf vnc|normal            animations off/on
+  snapshot list|create|diff N|undo N    btrfs snapshots (snapper)
+  update                     pacman -Syu + Sneh payload (REPO_URL) + agents
+  logs session|vnc|hypr|firstboot|UNIT
+  doctor                     health checks
+  fonts [ZIP]                (re)install Maple Mono NF
+  setup                      rebuild ~/.config from $SYS
+EOF
+}
+
+case ${1:-help} in
+    status|st) shift; cmd_status "$@" ;;
+    theme) shift; cmd_theme "$@" ;;
+    wallpaper|wall) shift; cmd_wallpaper "$@" ;;
+    vnc) shift; cmd_vnc "$@" ;;
+    desktop|de) shift; cmd_desktop "$@" ;;
+    perf) shift; cmd_perf "$@" ;;
+    gui) shift; cmd_gui "$@" ;;
+    update|up) shift; cmd_update "$@" ;;
+    fix) shift; cmd_fix "$@" ;;
+    snapshot|snap) shift; cmd_snapshot "$@" ;;
+    logs|log) shift; cmd_logs "$@" ;;
+    agents) shift; cmd_agents "$@" ;;
+    bar) shift; cmd_bar "$@" ;;
+    keys|k) shift; cmd_keys "$@" ;;
+    win|w) shift; cmd_win "$@" ;;
+    ws) shift; cmd_ws "$@" ;;
+    app) shift; cmd_app "$@" ;;
+    apps) shift; cmd_apps "$@" ;;
+    net) shift; cmd_net "$@" ;;
+    spotify) shift; cmd_spotify "$@" ;;
+    doctor) shift; cmd_doctor "$@" ;;
+    fonts) shift; cmd_fonts "$@" ;;
+    setup) shift; cmd_setup "$@" ;;
+    attach|a) shift; cmd_attach "$@" ;;
+    version|--version|-v) echo "sneh $VERSION" ;;
+    help|-h|--help) usage ;;
+    *) usage; exit 1 ;;
+esac
