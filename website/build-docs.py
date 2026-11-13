@@ -108,9 +108,11 @@ def page(name, title, body, heads, nav_html, toc_html, pager_html, mark, index):
   <a class="brand" href="../index.html" aria-label="स्नेह home">{mark}</a>
   <nav>
     <button class="menu-btn" type="button" aria-controls="docs-side" aria-expanded="false">Menu</button>
-    <a href="../index.html#install">Install</a>
+    <a href="../index.html#how">How</a>
+    <a href="../index.html#agents">Agents</a>
+    <a href="../index.html#look">Look</a>
     <a href="index.html" class="active">Docs</a>
-    <a href="{REPO}">GitHub</a>
+    <a href="../index.html#install" class="nav-cta">Install</a>
   </nav>
 </header>
 <div class="docs">
