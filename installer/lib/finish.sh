@@ -20,8 +20,8 @@ finish_install() {
         echo "installed=$(date -Is)"
         echo "target=$TARGET"
         echo "host=$(cfg HOSTNAME)"
-    } >"$RK/installed.done"
-    rm -f "$RK/install.failed"
+    } >"$SNEH_DIR/installed.done"
+    rm -f "$SNEH_DIR/install.failed"
     # Many mini PCs boot USB first no matter what NVRAM says. Make the stick
     # non-bootable so the machine always falls through to the installed disk.
     # (Rename the files back to get the rescue system.)
@@ -30,7 +30,7 @@ finish_install() {
         [[ -e $efi ]] && mv -f "$efi" "$efi.sneh-disabled"
     done
     note "stick boot loader disabled (rename EFI/BOOT/*.sneh-disabled back for rescue mode)"
-    sed -i -E 's/^(PASSWORD|VNC_PASSWORD|WIFI_PSK|TAILSCALE_AUTHKEY)=.*/\1=<removed>/' "$RK/sneh.conf"
+    sed -i -E 's/^(PASSWORD|VNC_PASSWORD|WIFI_PSK|TAILSCALE_AUTHKEY)=.*/\1=<removed>/' "$SNEH_DIR/sneh.conf"
     note "secrets scrubbed from the stick; installed.done written"
 
     step "Done. ssh $(cfg USERNAME)@$(cfg HOSTNAME).local  ·  VNC $(cfg HOSTNAME).local:5900"

@@ -1,9 +1,10 @@
-# Publishes website/ to GitHub Pages on every push that changes it.
+# Publishes website/ to GitHub Pages. The docs pages are generated from docs/*.md
+# by website/build-docs.py; the job fails if they weren't rebuilt after an edit.
 name: website
 on:
   push:
     branches: [main]
-    paths: ["website/**", ".github/workflows/pages.yml"]
+    paths: ["website/**", "docs/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
 permissions:
@@ -23,6 +24,13 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Docs pages are up to date
+        run: |
+          pip install markdown-it-py==4.0.0
+          python website/build-docs.py --check
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

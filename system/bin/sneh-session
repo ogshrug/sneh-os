@@ -8,13 +8,13 @@ export PATH="$HOME/.local/bin:$PATH"
 # Memory: no GTK accessibility bus (at-spi, ~15 MB) or dconf daemon (~6 MB);
 # nothing on this desktop uses them.
 export NO_AT_BRIDGE=1 GTK_A11Y=none GSETTINGS_BACKEND=memory
-RKC=${XDG_CONFIG_HOME:-$HOME/.config}/sneh
+SNEHCFG=${XDG_CONFIG_HOME:-$HOME/.config}/sneh
 STATE=${XDG_STATE_HOME:-$HOME/.local/state}/sneh
-mkdir -p "$STATE" "$RKC"
+mkdir -p "$STATE" "$SNEHCFG"
 LOG=$STATE/session.log
 fails=0
 while :; do
-    if [[ -e $RKC/desktop.off ]]; then sleep 5; continue; fi
+    if [[ -e $SNEHCFG/desktop.off ]]; then sleep 5; continue; fi
     [[ $(stat -c %s "$LOG" 2>/dev/null || echo 0) -gt 4000000 ]] && mv -f "$LOG" "$LOG.1"
     echo "$(date -Is) starting Hyprland" >>"$LOG"
     started=$(date +%s)
@@ -24,7 +24,7 @@ while :; do
     if (( $(date +%s) - started < 20 )); then fails=$((fails + 1)); else fails=0; fi
     if (( fails >= 5 )); then
         echo "$(date -Is) crash loop - parking the desktop (sne desktop on to retry, sne logs session)" >>"$LOG"
-        touch "$RKC/desktop.off"; fails=0
+        touch "$SNEHCFG/desktop.off"; fails=0
     fi
     sleep 2
 done

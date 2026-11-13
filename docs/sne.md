@@ -10,7 +10,7 @@ With `--json`, they print `{"ok":true,"message":…}` instead. Errors print `{"o
 |---|---|
 | `sne status [--json]` | host, profile, kernel, uptime, load, memory/swap/zram, temperature, disk, IPs, core services, desktop/VNC state, running agents, theme |
 | `sne doctor` | checks network, sshd, avahi, zram, earlyoom, desktop, wayvnc, input group, claude/opencode, fonts and CPU SSE4.2, with fix hints |
-| `sne logs session\|vnc\|hypr\|install\|firstboot\|<unit> [N]` | the last N lines of the relevant log |
+| `sne logs session\|vnc\|hypr\|install\|firstboot\|<unit> [N]` | the last N lines (default 80) of that log |
 | `sne version` | Sneh version |
 
 ## Desktop and remote access
@@ -22,7 +22,8 @@ With `--json`, they print `{"ok":true,"message":…}` instead. Errors print `{"o
 | `sne vnc password [PW]` | change the VNC password (asks if omitted) |
 | `sne vnc resolution 1920x1080` | resize the virtual screen and re-render the wallpaper |
 | `sne vnc bind lan\|localhost\|tailscale` | which address VNC listens on |
-| `sne perf vnc\|normal` | animations off/on (off feels best over slow links) |
+| `sne perf vnc\|normal\|status` | animations off/on (off feels best over slow links) |
+| `sne net [status]` | network menu (Wi-Fi, connect); `status` prints the devices as JSON |
 
 ## GUI automation
 
@@ -30,7 +31,7 @@ These commands work over SSH. Coordinates are screenshot pixels at scale 1.
 
 | Command | What it does |
 |---|---|
-| `sne gui screenshot [FILE]` | PNG of the active output. `RK_SHOT_SCALE=0.5` gives a half-size image |
+| `sne gui screenshot [FILE]` | PNG of the active output. `SNEH_SHOT_SCALE=0.5` gives a half-size image |
 | `sne gui monitors\|windows\|active\|cursor` | JSON from Hyprland |
 | `sne gui launch CMD [ARGS]` | start an app, detached |
 | `sne gui focus class:REGEX` | also `title:REGEX` or `address:0x…`; a bare word means class |
@@ -46,7 +47,7 @@ These commands work over SSH. Coordinates are screenshot pixels at scale 1.
 
 | Command | What it does |
 |---|---|
-| `sne theme list\|current\|set NAME` | the themes are `ink`, `rose`, `red-august`, `teal`, `aether`, `olive` and `blue-hour` |
+| `sne theme list\|current\|set NAME` | `dusk` (default), `ink`, `rose`, `red-august`, `teal`, `aether`, `olive`, `blue-hour` |
 | `sne wallpaper pick` | picker with thumbnails (`SUPER+SHIFT+W`) |
 | `sne wallpaper next\|prev` | cycle through dusk ridge and `~/.local/share/sneh/wallpapers` (`SUPER+ALT+W`) |
 | `sne wallpaper fetch\|unfetch` | download (or remove) the optional Firewatch set, 14 pictures from wallhaven.cc; the picker offers it too |
@@ -54,20 +55,28 @@ These commands work over SSH. Coordinates are screenshot pixels at scale 1.
 | `sne wallpaper list [--json]` | every wallpaper, the current one marked |
 | `sne wallpaper clock on\|off` | the depth clock: the time is drawn *behind* the scenery (trees, towers) |
 | `sne wallpaper reset` | back to *dusk ridge*, Sneh's own wallpaper |
-| `sne keys [--list]` | the quick menu of every shortcut (`SUPER+/`); Enter runs the entry |
-| `sne apps list\|add NAME\|remove NAME` | optional apps: `files` (Thunar) `spotify` `vlc` `mpv` `firefox` `images`; the dock hides what isn't installed |
-| `sne spotify on\|off\|status` | Spotify Connect speaker (spotifyd): pick this PC in the Spotify app; the bar shows and controls what plays |
 | `sne fonts [ZIP]` | (re)install Maple Mono NF (4 styles, about 4 MB) |
-| `sne setup` | rebuild `~/.config` from `/usr/share/sneh` and keep your `user.*` files |
+
+## Windows, workspaces and apps
+
+| Command | What it does |
+|---|---|
+| `sne keys [--list]` | the quick menu of every shortcut (`SUPER+/`); Enter runs the entry |
+| `sne win switch\|close\|quit\|desktop\|list` | `ALT+TAB` switcher, close (`KEEP_ALIVE` apps hide), quit, show desktop, list windows as JSON |
+| `sne ws desk\|agents\|agent\|sync` | go to a workspace; `agent` opens one more agent terminal; `sync` re-applies the bar rule |
+| `sne app spotify\|files` | open the app, or bring it back if hidden |
+| `sne apps list\|add NAME\|remove NAME` | optional apps: `files` (Thunar), `spotify`, `vlc`, `mpv`, `firefox`, `images` (imv); the dock hides what isn't installed |
+| `sne spotify on\|off\|status` | Spotify Connect speaker (spotifyd): pick this PC in the Spotify app; the bar shows and controls what plays |
 
 ## Maintenance
 
 | Command | What it does |
 |---|---|
-| `sne update` | pull the Sneh payload from `REPO_URL` (if set), run `pacman -Syu`, update Claude Code, clear the package cache, re-render |
+| `sne update` | pull the Sneh payload from `REPO_URL` (if set), run `pacman -Syu`, update Claude Code and opencode, clear the package cache, re-render |
+| `sne setup` | rebuild `~/.config` from `/usr/share/sneh`; your `user.*` files are kept |
 | `sne fix fuzzel` | rebuild fuzzel 1.15.0 with the upstream mouse-wheel fix (install, first boot and `sne update` do this; build tools are removed after) |
 | `sne snapshot list\|create [DESC]\|diff N\|undo N` | btrfs snapshots via snapper (pacman also snapshots automatically) |
-| `sne agents status\|link` | agent CLI versions; re-link `AGENTS.md` and skills |
+| `sne agents status\|link\|install-opencode` | agent CLI versions; re-link `AGENTS.md` and skills; (re)install opencode |
 | `sne attach [NAME]` | open or attach the tmux session (default `agents`) |
 
 ## Settings file
@@ -86,10 +95,11 @@ These commands work over SSH. Coordinates are screenshot pixels at scale 1.
 | `XKB_LAYOUT` | an xkb layout |
 | `AGENTS` | the agents to install |
 | `LOCK_ON_LOGIN` | `yes` \| `no` |
-| `REPO_URL` | where `sne update` pulls the payload from |
-| `WALLPAPER` | path to the current wallpaper |
+| `REPO_URL` | the git URL `sne update` pulls Sneh from (e.g. `https://github.com/ogshrug/sneh-os.git`) |
+| `WALLPAPER` | path to the current wallpaper; empty = *dusk ridge* |
+| `FIREWATCH` | `yes` \| `no`: download the optional Firewatch set |
 | `CLOCK` | `on` \| `off`: the depth clock on the wallpaper |
 | `APPS` | the optional apps chosen at install (`sne apps` keeps it up to date) |
 | `SPOTIFY` | `on` \| `off`: the Spotify Connect speaker |
-| `TERMINALS_ON_LOGIN` | `yes` \| `no`: open a terminal and the agents terminal on workspace 1 |
+| `KEEP_ALIVE` | apps that `SUPER+Q` hides instead of quitting, as a regex (default `spotify\|Spotify`) |
 | `WEATHER_LOCATION` | a city for the bar's weather (empty = guess from your IP via wttr.in) |

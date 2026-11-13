@@ -2,11 +2,11 @@
 # Run once by Hyprland on start (hl.on("hyprland.start")).
 SYS=/usr/share/sneh
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/sneh
-RKC=${XDG_CONFIG_HOME:-$HOME/.config}/sneh
+SNEHCFG=${XDG_CONFIG_HOME:-$HOME/.config}/sneh
 STATE=${XDG_STATE_HOME:-$HOME/.local/state}/sneh
 mkdir -p "$CACHE" "$STATE"
 exec >>"$STATE/session.log" 2>&1
-setting() { grep -m1 "^$1=" "$RKC/settings.env" 2>/dev/null | cut -d= -f2-; }
+setting() { grep -m1 "^$1=" "$SNEHCFG/settings.env" 2>/dev/null | cut -d= -f2-; }
 
 # 1. No monitor plugged in (the mini PC case)? Make a virtual one for VNC.
 real=$(hyprctl -j monitors 2>/dev/null | jq '[.[] | select(.name != "FALLBACK")] | length')

@@ -7,7 +7,7 @@ Put your own changes in the files below; those commands never overwrite them.
 |---|---|
 | `~/.config/hypr/user.lua` | Hyprland (0.57 **Lua** API), loaded last |
 | `~/.config/fish/user.fish` | shell aliases, environment |
-| `~/.config/sneh/settings.env` | Sneh settings (see `docs/sne.md`); run `sne setup` after editing |
+| `~/.config/sneh/settings.env` | Sneh settings (see [the settings file](sne.md#settings-file)); run `sne setup` after editing |
 
 ## Hyprland examples (`user.lua`)
 

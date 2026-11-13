@@ -25,8 +25,8 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GLib, Gtk  # noqa: E402
 
 USB = "/run/archiso/bootmnt"
-RK = os.environ.get("SNEH_RK", f"{USB}/sneh")
-SYS = f"{RK}/system"
+SNEH_DIR = os.environ.get("SNEH_DIR", f"{USB}/sneh")
+SYS = f"{SNEH_DIR}/system"
 RUN = "/tmp/sneh-dryrun" if os.environ.get("SNEH_SETUP_DRYRUN") == "1" else "/run/sneh"
 DRYRUN = os.environ.get("SNEH_SETUP_DRYRUN") == "1"
 ANSWERS = {}
@@ -121,8 +121,8 @@ def disks():
     if DRYRUN:
         return [("/dev/sda", "Samsung SSD 860 EVO 250GB · 232.9 GiB · sata"),
                 ("/dev/nvme0n1", "WD SN570 1TB · 931.5 GiB · nvme")]
-    script = (f"export RK={shlex.quote(RK)} USB={USB}; source {shlex.quote(RK)}/lib/common.sh; "
-              f"source {shlex.quote(RK)}/lib/disk.sh; for d in $(_candidates); do printf '%s\\t%s\\n' \"$d\" \"$(_describe \"$d\")\"; done")
+    script = (f"export SNEH_DIR={shlex.quote(SNEH_DIR)} USB={USB}; source {shlex.quote(SNEH_DIR)}/lib/common.sh; "
+              f"source {shlex.quote(SNEH_DIR)}/lib/disk.sh; for d in $(_candidates); do printf '%s\\t%s\\n' \"$d\" \"$(_describe \"$d\")\"; done")
     rows = []
     for line in sh(["bash", "-c", script]).splitlines():
         if "\t" in line:
@@ -162,7 +162,7 @@ def guess_timezone():
 class Setup(Adw.Application):
     def __init__(self):
         super().__init__(application_id="os.sneh.Setup")
-        self.stick = read_conf(f"{RK}/sneh.conf")
+        self.stick = read_conf(f"{SNEH_DIR}/sneh.conf")
         self.cfg = {}
         self.page = 0
         self.wifi = {}
@@ -627,7 +627,7 @@ class Setup(Adw.Application):
         if DRYRUN:
             cmd = ["bash", "-c", "for s in Network Disk 'Installing base system' Chroot 'Agents' Done; do echo \"▸ $s\"; sleep 1; done"]
         else:
-            cmd = ["bash", f"{RK}/install.sh"]
+            cmd = ["bash", f"{SNEH_DIR}/install.sh"]
         env = dict(os.environ, SNEH_CONF=conf, SNEH_GUI="1", TERM="dumb")
         p = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
         for line in p.stdout:

@@ -8,7 +8,7 @@ _pkglist() { sed -e 's/#.*//' -e '/^\s*$/d' "$@" | tr -s ' \t' '\n' | sed '/^$/d
 _apps() {
     local want; want=",$(cfg APPS files,vlc,images),"
     [[ $(cfg BROWSER none) == firefox ]] && want+="firefox,"
-    sed -e 's/#.*//' "$RK/system/packages/apps.txt" | while IFS=: read -r name pkgs; do
+    sed -e 's/#.*//' "$SNEH_DIR/system/packages/apps.txt" | while IFS=: read -r name pkgs; do
         name=${name// /}
         [[ -n $name && $want == *,"$name",* ]] && tr -s ' \t' '\n' <<<"$pkgs" | sed '/^$/d'
     done
@@ -23,7 +23,7 @@ _vendors() {
 firmware_packages() {
     local fw=$1 vendors pkg ids id matched=()
     if [[ $fw == full ]]; then
-        awk '!/^#/ && NF {print $1}' "$RK/system/packages/firmware.txt"; return
+        awk '!/^#/ && NF {print $1}' "$SNEH_DIR/system/packages/firmware.txt"; return
     fi
     vendors=$(_vendors)
     while read -r pkg ids; do
@@ -35,7 +35,7 @@ firmware_packages() {
                 matched+=("$pkg"); break
             fi
         done
-    done <"$RK/system/packages/firmware.txt"
+    done <"$SNEH_DIR/system/packages/firmware.txt"
     ((${#matched[@]})) || matched=(linux-firmware-other)
     printf '%s\n' "${matched[@]}"
 }
@@ -43,8 +43,8 @@ firmware_packages() {
 select_packages() {
     local prof kernel
     prof=$(cfg PROFILE desktop); kernel=$(cfg KERNEL linux-zen)
-    mapfile -t PKGS < <(_pkglist "$RK"/system/packages/{base,desktop,"profile-$prof"}.txt)
-    [[ $(cfg AGENTS claude,opencode) != none ]] && mapfile -t -O "${#PKGS[@]}" PKGS < <(_pkglist "$RK/system/packages/agents.txt")
+    mapfile -t PKGS < <(_pkglist "$SNEH_DIR"/system/packages/{base,desktop,"profile-$prof"}.txt)
+    [[ $(cfg AGENTS claude,opencode) != none ]] && mapfile -t -O "${#PKGS[@]}" PKGS < <(_pkglist "$SNEH_DIR/system/packages/agents.txt")
     PKGS+=("$kernel")
     case $(awk -F': ' '/^vendor_id/ {print $2; exit}' /proc/cpuinfo) in
         GenuineIntel) PKGS+=(intel-ucode) ;;
@@ -82,7 +82,7 @@ setup_offline_repo() {
     local r=/tmp/rkrepo f b
     rm -rf "$r"; mkdir -p "$r"
     # FAT can't store ':' (package epochs); the flasher saved them as %3A.
-    for f in "$RK"/repo/*; do b=$(basename "$f"); ln -sf "$f" "$r/${b//%3A/:}"; done
+    for f in "$SNEH_DIR"/repo/*; do b=$(basename "$f"); ln -sf "$f" "$r/${b//%3A/:}"; done
     PACCONF=/tmp/pacman-offline.conf
     {
         printf '[options]\nArchitecture = auto\nSigLevel = Required DatabaseOptional\nLocalFileSigLevel = Optional\nParallelDownloads = 5\n'
@@ -99,7 +99,7 @@ install_base() {
     select_packages
     PACCONF=/etc/pacman.conf
     if [[ $(cfg INSTALL_MODE net) == full ]]; then
-        [[ -f $RK/repo/core.db ]] || die "INSTALL_MODE=full but the stick has no sneh/repo (re-flash with -Mode full)"
+        [[ -f $SNEH_DIR/repo/core.db ]] || die "INSTALL_MODE=full but the stick has no sneh/repo (re-flash with -Mode full)"
         setup_offline_repo
     else
         _apply_pacman_opts /etc/pacman.conf
@@ -143,13 +143,13 @@ configure_in_chroot() {
     step "Configuring the installed system"
     local stage=/mnt/root/sneh-install
     rm -rf "$stage"; mkdir -p "$stage"
-    cp -r "$RK/lib" "$stage/lib"
-    cp -r "$RK/system" "$stage/system"
-    [[ -d $RK/extras ]] && cp -r "$RK/extras" "$stage/extras"
-    install -m600 "$RK/sneh.conf" "$stage/sneh.conf"
+    cp -r "$SNEH_DIR/lib" "$stage/lib"
+    cp -r "$SNEH_DIR/system" "$stage/system"
+    [[ -d $SNEH_DIR/extras ]] && cp -r "$SNEH_DIR/extras" "$stage/extras"
+    install -m600 "$SNEH_DIR/sneh.conf" "$stage/sneh.conf"
     chmod 700 "$stage"
     ROOT_UUID=$(blkid -s UUID -o value "$ROOT")
-    arch-chroot /mnt env RK=/root/sneh-install ROOT_UUID="$ROOT_UUID" KERNEL="$KERNEL" \
+    arch-chroot /mnt env SNEH_DIR=/root/sneh-install ROOT_UUID="$ROOT_UUID" KERNEL="$KERNEL" \
         bash /root/sneh-install/lib/chroot.sh
     cp "$LOG" /mnt/var/log/sneh-install.log 2>/dev/null || true
     rm -rf "$stage"   # contains secrets

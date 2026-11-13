@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Runs inside `arch-chroot /mnt`. RK = staged stick payload (/root/sneh-install),
+# Runs inside `arch-chroot /mnt`. SNEH_DIR = staged stick payload (/root/sneh-install),
 # ROOT_UUID = btrfs root, KERNEL = installed kernel package.
 set -Eeuo pipefail
 # shellcheck source=common.sh
-source "$RK/lib/common.sh"
-load_config "$RK/sneh.conf"
+source "$SNEH_DIR/lib/common.sh"
+load_config "$SNEH_DIR/sneh.conf"
 
 U=$(cfg USERNAME)
 H=/home/$U
@@ -41,7 +41,7 @@ EOF
 # ------------------------------------------------------------------ payload
 step "Installing Sneh payload to $SYS"
 rm -rf "$SYS"
-cp -r "$RK/system" "$SYS"
+cp -r "$SNEH_DIR/system" "$SYS"
 find "$SYS" -type d -exec chmod 755 {} +
 find "$SYS" -type f -exec chmod 644 {} +
 chmod 755 "$SYS"/bin/*
@@ -173,9 +173,9 @@ fi
 
 # ------------------------------------------------------------------ fonts
 step "Fonts"
-if [[ -f $RK/extras/MapleMono-NF-unhinted.zip ]]; then
+if [[ -f $SNEH_DIR/extras/MapleMono-NF-unhinted.zip ]]; then
     tmp=$(mktemp -d)
-    if unzip -qo -j "$RK/extras/MapleMono-NF-unhinted.zip" 'MapleMono-NF-Regular.ttf' 'MapleMono-NF-Bold.ttf' 'MapleMono-NF-Italic.ttf' 'MapleMono-NF-BoldItalic.ttf' -d "$tmp"; then
+    if unzip -qo -j "$SNEH_DIR/extras/MapleMono-NF-unhinted.zip" 'MapleMono-NF-Regular.ttf' 'MapleMono-NF-Bold.ttf' 'MapleMono-NF-Italic.ttf' 'MapleMono-NF-BoldItalic.ttf' -d "$tmp"; then
         install -Dm644 -t /usr/local/share/fonts/maple "$tmp"/*.ttf && note "Maple Mono NF (4 styles, from the stick)"
     fi
     rm -rf "$tmp"

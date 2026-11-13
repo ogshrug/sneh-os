@@ -39,7 +39,7 @@ sne spotify status --json    # Spotify Connect speaker + what is playing
 sne snapshot create "before X"   # ALWAYS before risky system changes
 sne snapshot list | diff N | undo N
 sne update                   # pacman -Syu + payload + agents
-sne logs session|vnc|hypr|firstboot|<systemd-unit>
+sne logs session|vnc|hypr|install|firstboot|<systemd-unit>
 ```
 
 ## Seeing and driving the desktop (GUI automation)
@@ -48,7 +48,7 @@ You can operate the graphical desktop from SSH, with no extra setup:
 
 ```sh
 sne gui screenshot             # → path to a PNG; read it to see the screen
-RK_SHOT_SCALE=0.5 sne gui screenshot   # half-size image (cheaper to look at)
+SNEH_SHOT_SCALE=0.5 sne gui screenshot   # half-size image (cheaper to look at)
 sne gui windows                # JSON: class, title, workspace, at [x,y], size [w,h]
 sne gui active | monitors | cursor
 sne gui launch foot            # start an app (detached)
@@ -104,7 +104,7 @@ Claude Code's status line is `sneh-claude-status`: it caches your plan usage
 /usr/share/sneh/bin/        sne, sneh-session (Hyprland supervisor), sneh-autostart, sneh-firstboot
 /usr/share/sneh/config/     pristine user configs (copied by sne setup)
 /usr/share/sneh/templates/  colour templates; file name a__b → ~/.config/a/b
-/usr/share/sneh/themes/     palettes: ink rose red-august teal aether olive blue-hour
+/usr/share/sneh/themes/     palettes: dusk (default) ink rose red-august teal aether olive blue-hour
 ~/.local/state/sneh/        session.log, wayvnc.log
 ~/.local/share/sneh/wallpapers/  wallpapers (mine/ = added with sne wallpaper set, firewatch/ = optional set)
 /usr/share/sneh/wallpapers/      dusk-ridge.jpg, the default (WALLPAPER= empty in settings.env)

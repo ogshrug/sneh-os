@@ -18,7 +18,7 @@ CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/sneh
 CONF='' DEV='' MODE='' ISO='' YES=0
 
 die() { printf '\e[31m✗ %s\e[0m\n' "$*" >&2; exit 1; }
-step() { printf '\e[38;2;200;65;47m▸\e[0m %s\n' "$*"; }
+step() { printf '\e[38;2;239;178;164m▸\e[0m %s\n' "$*"; }
 usage() { sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 while getopts "c:d:m:i:yh" o; do

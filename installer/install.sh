@@ -5,9 +5,9 @@
 set -Eeuo pipefail
 
 USB=/run/archiso/bootmnt
-RK="$USB/sneh"
-export RK USB
-LIB="$RK/lib"
+SNEH_DIR="$USB/sneh"
+export SNEH_DIR USB
+LIB="$SNEH_DIR/lib"
 
 # shellcheck source=lib/common.sh
 source "$LIB/common.sh"
@@ -17,7 +17,7 @@ source "$LIB/common.sh"
 # second install. Fix things with: mount -o subvol=@ /dev/<disk>2 /mnt; arch-chroot /mnt
 rescue_mode() {
     echo "sneh: already installed (sneh/installed.done). Rescue mode."
-    load_config "$RK/sneh.conf" 2>/dev/null || true
+    load_config "$SNEH_DIR/sneh.conf" 2>/dev/null || true
     local host; host="$(cfg HOSTNAME sneh)-rescue"
     hostnamectl set-hostname "$host" 2>/dev/null || true
     if [[ -n $(cfg SSH_PUBKEY) ]]; then
@@ -36,25 +36,25 @@ rescue_mode() {
 
 main() {
     usb_writable
-    if [[ -e "$RK/installed.done" ]]; then
+    if [[ -e "$SNEH_DIR/installed.done" ]]; then
         rescue_mode
         exit 0
     fi
-    rm -f "$RK/install.failed"
+    rm -f "$SNEH_DIR/install.failed"
     # Graphical stick: hand the screen to the setup app. It comes back here
     # with SNEH_GUI=1 and its answers in SNEH_CONF to do the actual install.
-    if [[ -z ${SNEH_GUI:-} ]] && grep -q '^INSTALL_UI=gui' "$RK/sneh.conf" 2>/dev/null; then
+    if [[ -z ${SNEH_GUI:-} ]] && grep -q '^INSTALL_UI=gui' "$SNEH_DIR/sneh.conf" 2>/dev/null; then
         # shellcheck source=lib/gui.sh
         source "$LIB/gui.sh"
-        LOG="$RK/install-gui.log"; exec > >(tee -a "$LOG") 2>&1
+        LOG="$SNEH_DIR/install-gui.log"; exec > >(tee -a "$LOG") 2>&1
         gui_mode && exit 0
         note "continuing with the unattended installer"
     fi
     start_log
     trap 'on_error $LINENO "$BASH_COMMAND"' ERR
 
-    step "Sneh installer $(cat "$RK/system/VERSION" 2>/dev/null || echo dev) starting on $(date -Is)"
-    load_config "${SNEH_CONF:-$RK/sneh.conf}"
+    step "Sneh installer $(cat "$SNEH_DIR/system/VERSION" 2>/dev/null || echo dev) starting on $(date -Is)"
+    load_config "${SNEH_CONF:-$SNEH_DIR/sneh.conf}"
     validate_config
 
     # shellcheck source=lib/net.sh

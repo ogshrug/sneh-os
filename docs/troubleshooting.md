@@ -37,6 +37,8 @@
 2. Boot from the stick. It starts a rescue system instead of reinstalling, reachable with `ssh root@<host>-rescue.local` (your key).
 3. Mount and chroot into the installed system:
    ```sh
-   mount -o subvol=@ /dev/sda2 /mnt && mount /dev/sda1 /mnt/boot
+   lsblk                                   # find the disk: e.g. sda or nvme0n1
+   mount -o subvol=@ /dev/sda2 /mnt        # partition 2 (nvme: /dev/nvme0n1p2)
+   mount /dev/sda1 /mnt/boot               # partition 1 (nvme: /dev/nvme0n1p1)
    arch-chroot /mnt
    ```

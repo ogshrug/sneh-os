@@ -5,7 +5,9 @@
 The stick does not use a custom ISO. The flasher:
 1. Creates one MBR partition with FAT32.
 2. Copies the contents of the official Arch ISO onto it.
-3. Appends to every UEFI boot entry: `copytoram=n script=/run/archiso/bootmnt/sneh/install.sh`.
+3. Appends to every UEFI boot entry: `copytoram=n cow_spacesize=2G script=/run/archiso/bootmnt/sneh/install.sh`.
+
+`cow_spacesize=2G` gives the live system room in RAM for the graphical installer's packages.
 
 That works with the stock ISO because of two of its features:
 - archiso finds its boot medium by searching partitions for `/boot/<uuid>.uuid`, so a FAT copy boots fine. That is also why the stick must have a partition table.
@@ -18,9 +20,10 @@ stick/
   EFI/ loader/ arch/ boot/        ← the Arch ISO, untouched except boot entry options
   sneh/
     install.sh lib/*.sh           ← installer
+    gui/                          ← the graphical installer (GTK4 app)
     system/                       ← OS payload (→ /usr/share/sneh)
-    sneh.conf                  ← your settings (KEY=value, parsed, never sourced)
-    repo/  extras/                ← full mode only: packages + .sig, trimmed core.db/extra.db, font zip
+    sneh.conf                     ← your settings (KEY=value, parsed, never sourced)
+    repo/  extras/                ← packages + .sig and trimmed databases (full mode; gui sticks carry the installer's own)
     install.log  installed.done   ← written by the installer
 ```
 
@@ -30,6 +33,7 @@ stick/
 |---|---|
 | `install.sh` | guard (`installed.done` → rescue mode), logging to the stick, ERR trap |
 | `lib/common.sh` | config parser and validation, `die`/`step`/`note` |
+| `lib/gui.sh` | graphical style: installs `cage` + GTK4 from the stick and runs `gui/sneh-setup.py`, which writes a config and calls `install.sh` |
 | `lib/net.sh` | live SSH + mDNS (`<host>-install.local`), Ethernet/Wi-Fi bring-up, keyring/mirrors |
 | `lib/disk.sh` | candidate filtering, 30 s countdown, GPT (512 MB ESP + btrfs `@ @home @log @pkg`) |
 | `lib/base.sh` | package selection (profile, kernel, CPU microcode, **firmware by PCI/USB vendor ID**), NoExtract, single-image initramfs preset, pacstrap (net or offline repo) |

@@ -21,7 +21,7 @@ if status is-interactive
     if set -q SSH_CONNECTION; and not set -q TMUX
         set -l mem (awk '/MemTotal/{t=$2}/MemAvailable/{a=$2}END{printf "%d/%d MB", (t-a)/1024, t/1024}' /proc/meminfo)
         printf '\e[38;2;239;178;164mस्नेह\e[0m %s · %s · load %s · %s\n' (cat /proc/sys/kernel/hostname) (uname -r) (cut -d' ' -f1 /proc/loadavg) $mem
-        printf '\e[38;2;133;125;110m  sne attach → agents tmux · sne gui help · sne help\e[0m\n'
+        printf '\e[38;2;139;143;184m  sne attach → agents tmux · sne gui help · sne help\e[0m\n'
     end
 end
 

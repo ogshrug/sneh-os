@@ -6,7 +6,7 @@ description: See and operate the Sneh graphical desktop (Hyprland) from a termin
 # Driving the Sneh desktop
 
 1. Make sure it's up: `sne desktop status --json` (if `running` is false: `sne desktop on`, wait ~5 s).
-2. Look: `RK_SHOT_SCALE=0.5 sne gui screenshot` prints a PNG path. Open/read the image.
+2. Look: `SNEH_SHOT_SCALE=0.5 sne gui screenshot` prints a PNG path. Open/read the image.
    Remember coordinates in a half-scale image must be doubled for `click`.
 3. Act:
    - `sne gui launch <cmd>` (e.g. `foot`, `firefox URL`) then `sne gui windows` to find it

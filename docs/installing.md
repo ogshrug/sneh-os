@@ -4,7 +4,7 @@
 
 - The target machine:
   - x86_64 with UEFI. Nearly everything since 2012 qualifies; legacy-BIOS-only machines are not supported.
-  - 2 GB of RAM minimum (4 GB is comfortable) and 16 GB of disk minimum.
+  - 2 GB of RAM minimum (4 GB is comfortable; the graphical installer needs 3 GB) and 16 GB of disk minimum.
 - A USB stick: at least 4 GB for **net** mode, 8 GB for **full** mode. Everything on it is erased.
 - A Windows 10/11 PC with PowerShell 7.4+ (`winget install Microsoft.PowerShell`), or a Linux PC (see the end).
 - For **net** mode, Ethernet on the target (or Wi-Fi details entered in the flasher).
@@ -54,22 +54,26 @@ For testing or kiosks, a `sneh/answers.json` next to the installer pre-fills eve
 
 ## Flash on Windows
 
-Open **pwsh as Administrator** in the Sneh folder:
+Get the code, then run the flasher from an **Administrator** terminal (right-click Start → **Terminal (Admin)**):
 
 ```powershell
+winget install Git.Git                 # if you don't have Git
+winget install Microsoft.PowerShell    # PowerShell 7.4+
+git clone https://github.com/ogshrug/sneh-os.git
+cd sneh-os
 pwsh -File flasher\sneh-flash.ps1
 ```
 
 The wizard asks for:
 
-- **profile** and **install mode**, as above
+- **edition** (`desktop` or `laptop`) and **install mode** (`net` or `full`), as above
 - **kernel**:
   - `linux-zen` (default; the lowest-latency desktop kernel)
   - `linux`
   - `linux-lts`
 - **CPU mitigations off**: makes system calls 5–20 % faster on old Intel CPUs. Only say yes for a single-user box on a trusted network.
 - **hostname, username, password**: the password unlocks sudo. **Passwordless sudo** lets agents install packages without asking.
-- **timezone, locale, keymaps**: detected from Windows where possible.
+- **timezone, locale, keymaps**: the time zone is taken from Windows; the others default to `en_US.UTF-8` and `us`.
 - **Wi-Fi**: optional. It can reuse this PC's current network.
 - **Tailscale auth key**: optional. The machine joins your tailnet on first boot.
 - **SSH key**:
@@ -144,9 +148,9 @@ To use the stick for rescue:
 1. Rename the `.EFI` files back.
 2. Boot from the stick. It recognises the finished install and starts SSH instead.
 3. Connect with `ssh root@<hostname>-rescue.local` (key only).
-4. Mount and chroot into the installed system:
+4. Mount and chroot into the installed system (`lsblk` shows the disk; on NVMe use `/dev/nvme0n1p2` and `/dev/nvme0n1p1`):
    ```sh
-   mount -o subvol=@ /dev/<disk>2 /mnt && mount /dev/<disk>1 /mnt/boot && arch-chroot /mnt
+   mount -o subvol=@ /dev/sda2 /mnt && mount /dev/sda1 /mnt/boot && arch-chroot /mnt
    ```
 
 To reinstall:

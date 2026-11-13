@@ -62,14 +62,14 @@ $SecretKeys = 'PASSWORD', 'VNC_PASSWORD', 'WIFI_PSK', 'TAILSCALE_AUTHKEY'
 
 # ---------------------------------------------------------------- ui helpers
 function Write-Brand {
-    $bone = "`e[38;2;235;227;210m"; $red = "`e[38;2;200;65;47m"; $dim = "`e[38;2;133;125;110m"; $r = "`e[0m"
+    $fg = "`e[38;2;230;226;247m"; $peach = "`e[38;2;239;178;164m"; $dim = "`e[38;2;139;143;184m"; $r = "`e[0m"
     Write-Host ''
-    Write-Host "  ${red}स्नेह${r}  ${bone}s n e h${r}   ${dim}headless · agent-first · arch${r}"
+    Write-Host "  ${peach}स्नेह${r}  ${fg}s n e h${r}   ${dim}headless · agent-first · arch${r}"
     Write-Host "  ${dim}─────────────────────────────────────────────${r}"
     Write-Host ''
 }
-function Write-Step([string]$msg) { Write-Host "  `e[38;2;200;65;47m▸`e[0m $msg" }
-function Write-Note([string]$msg) { Write-Host "    `e[38;2;133;125;110m$msg`e[0m" }
+function Write-Step([string]$msg) { Write-Host "  `e[38;2;239;178;164m▸`e[0m $msg" }
+function Write-Note([string]$msg) { Write-Host "    `e[38;2;139;143;184m$msg`e[0m" }
 function Fail([string]$msg) { Write-Host "  `e[31m✗ $msg`e[0m"; exit 1 }
 
 function Ask([string]$label, [string]$default = '', [scriptblock]$validate = $null, [string]$hint = '') {
@@ -435,18 +435,18 @@ Write-Step 'Patching boot entries for unattended install'
 Update-BootEntries "$usb\"
 
 Write-Step 'Adding Sneh installer + system payload'
-$rk = Join-Path "$usb\" 'sneh'
-Copy-Payload (Join-Path $RepoRoot 'installer') $rk
-Copy-Payload (Join-Path $RepoRoot 'system') (Join-Path $rk 'system')
-Write-SnehConf $cfg (Join-Path $rk 'sneh.conf')
-Remove-Item (Join-Path $rk 'installed.done'), (Join-Path $rk 'install.failed') -ErrorAction SilentlyContinue
+$stickDir = Join-Path "$usb\" 'sneh'
+Copy-Payload (Join-Path $RepoRoot 'installer') $stickDir
+Copy-Payload (Join-Path $RepoRoot 'system') (Join-Path $stickDir 'system')
+Write-SnehConf $cfg (Join-Path $stickDir 'sneh.conf')
+Remove-Item (Join-Path $stickDir 'installed.done'), (Join-Path $stickDir 'install.failed') -ErrorAction SilentlyContinue
 
 if ($cfg['INSTALL_UI'] -eq 'gui' -and $cfg.INSTALL_MODE -ne 'full') {
-    Build-OfflineRepo $RepoRoot $cfg (Join-Path $rk 'repo') $CacheDir -GuiOnly
+    Build-OfflineRepo $RepoRoot $cfg (Join-Path $stickDir 'repo') $CacheDir -GuiOnly
 }
 if ($cfg.INSTALL_MODE -eq 'full') {
-    Build-OfflineRepo $RepoRoot $cfg (Join-Path $rk 'repo') $CacheDir
-    $extras = Join-Path $rk 'extras'; New-Item -ItemType Directory -Force $extras | Out-Null
+    Build-OfflineRepo $RepoRoot $cfg (Join-Path $stickDir 'repo') $CacheDir
+    $extras = Join-Path $stickDir 'extras'; New-Item -ItemType Directory -Force $extras | Out-Null
     $zip = Join-Path $CacheDir 'MapleMono-NF-unhinted.zip'
     if (-not (Test-Path $zip)) {
         & curl.exe -sSL --fail -o $zip 'https://github.com/subframe7536/maple-font/releases/latest/download/MapleMono-NF-unhinted.zip'
@@ -462,7 +462,7 @@ if (-not $OutDir) {
 
 $size = (Get-ChildItem -LiteralPath "$usb\" -Recurse -File | Measure-Object Length -Sum).Sum
 Write-Host ''
-Write-Host ("  `e[38;2;235;227;210mDone.`e[0m  {0:N0} MB on the stick ({1} mode, {2} edition). Next:" -f ($size / 1MB), $cfg.INSTALL_MODE, $cfg.PROFILE)
+Write-Host ("  `e[38;2;230;226;247mDone.`e[0m  {0:N0} MB on the stick ({1} mode, {2} edition). Next:" -f ($size / 1MB), $cfg.INSTALL_MODE, $cfg.PROFILE)
 if ($OutDir) { Write-Note "Stick contents are in $usb - copy them onto a FAT32 partition (any label) to boot." }
 Write-Note '1. Firmware: UEFI boot ON, CSM/Legacy OFF, Secure Boot OFF, USB first in boot order.'
 if ($cfg['INSTALL_UI'] -eq 'gui') {

@@ -6,8 +6,8 @@
 
 local ok_c, C = pcall(require, "colors")
 if not ok_c then
-    C = { bg = "000000", surface = "0d0c0a", overlay = "1c1a16", fg = "ebe3d2", muted = "857d6e",
-          accent = "ebe3d2", accent2 = "c8412f", urgent = "c8412f" }
+    C = { bg = "080a18", surface = "0d1024", overlay = "1d2246", fg = "e6e2f7", muted = "8b8fb8",
+          accent = "a99be8", accent2 = "efb2a4", urgent = "f2707a" }   -- dusk
 end
 local ok_s, S = pcall(require, "settings")
 if not ok_s then S = { profile = "desktop", resolution = "1600x900@30", animations = true, kb_layout = "us", xwayland = false } end
@@ -162,13 +162,10 @@ hl.bind("ALT + TAB",           hl.dsp.exec_cmd("sne win switch"))               
 hl.bind(M .. " + TAB",         hl.dsp.exec_cmd("sne win switch"))
 hl.bind(M .. " + E",           hl.dsp.exec_cmd(files))
 hl.bind(M .. " + A",           hl.dsp.exec_cmd("sne ws agent"))                 -- agents workspace; there: one more agent
-hl.bind(M .. " + B",           hl.dsp.exec_cmd("xdg-open https://"))
 hl.bind(M .. " + Q",           hl.dsp.exec_cmd("sne win close"))  -- KEEP_ALIVE apps (Spotify) hide instead
 hl.bind(M .. " + SHIFT + Q",   hl.dsp.window.close())
-hl.bind(M .. " + W",           hl.dsp.window.close())
 hl.bind(M .. " + V",           hl.dsp.window.float({ action = "toggle" }))
 hl.bind(M .. " + F",           hl.dsp.window.fullscreen())
-hl.bind(M .. " + P",           hl.dsp.window.pseudo())
 hl.bind(M .. " + J",           hl.dsp.layout("togglesplit"))
 hl.bind(M .. " + N",           hl.dsp.exec_cmd("makoctl dismiss --all"))
 hl.bind(M .. " + slash",       hl.dsp.exec_cmd("sne keys"))                     -- quick menu: every shortcut

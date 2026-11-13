@@ -32,7 +32,7 @@ Sneh turns a 4 GB DDR3 mini PC (or any x86-64 UEFI machine) into a quiet, quick 
   - The `sne` CLI answers in JSON, and `sne gui` lets an agent see and drive the desktop over SSH.
   - The bar shows your Claude plan usage and when it resets.
 - **Light.**
-  - About 0.7 GB of RAM at idle and about 1.7 GB on disk. In a VM it boots to the desktop in about 12 s.
+  - About 0.7 GB of RAM at idle and 1.8 GB on disk. In a test VM it boots to the desktop in about 14 s.
   - Swap is zram, and earlyoom guards memory.
   - Background services that nothing on a headless box uses are switched off.
 - **Looks.**
@@ -43,27 +43,32 @@ Sneh turns a 4 GB DDR3 mini PC (or any x86-64 UEFI machine) into a quiet, quick 
 
 ## Quick start
 
-1. Get a USB stick: 4 GB for net mode, 8 GB for full. **It will be erased.**
-2. Flash it on **Windows** with PowerShell 7.4+ (`winget install Microsoft.PowerShell`), from an Administrator `pwsh`:
+You need a USB stick (4 GB, or 8 GB for an offline stick). **The stick and the target's disk are erased.**
+
+1. Get the code:
+   ```powershell
+   git clone https://github.com/ogshrug/sneh-os.git
+   cd sneh-os
+   ```
+2. Flash the stick on **Windows** with PowerShell 7.4+ (`winget install Microsoft.PowerShell`), in an Administrator terminal:
    ```powershell
    pwsh -File flasher\sneh-flash.ps1
    ```
-   Or on **Linux**, writing a config from `flasher/sneh.conf.example` first:
+   On **Linux**, fill in a copy of `flasher/sneh.conf.example`, then:
    ```sh
    sudo ./flasher/sneh-flash.sh -c my.conf -d /dev/sdX
    ```
-   The flasher downloads and checksum-verifies the official Arch ISO, adds the installer and writes the stick.
 3. In the target's firmware: UEFI on, CSM/Legacy off, Secure Boot off, USB first.
-4. Boot from the stick:
-   - **Unattended stick:** plug in Ethernet (or give Wi-Fi details to the flasher) and walk away. It erases the chosen disk after a 30-second countdown, installs, and reboots.
-   - **Graphical stick:** follow the installer on screen and press **Install**, then **Restart**.
+4. Boot the target from the stick:
+   - **Unattended stick:** plug in Ethernet and walk away. After a 30-second countdown it erases the disk, installs and reboots.
+   - **Graphical stick:** follow the installer, press **Install**, then **Restart now**.
 5. Connect:
    ```sh
    ssh <user>@<hostname>.local
    ```
-   For VNC, point TigerVNC ≥ 1.13 or RealVNC at `<hostname>.local:5900`.
+   For the desktop, point TigerVNC ≥ 1.13 or RealVNC Viewer at `<hostname>.local:5900`.
 
-After a successful install the stick switches its own boot loader off, so leaving it plugged in is harmless. Rename the file back and the stick boots into an SSH rescue system. See [docs/installing.md](docs/installing.md).
+The stick switches its own boot loader off after a successful install, so leaving it in is harmless. Step-by-step guide: [docs/installing.md](docs/installing.md).
 
 ## Day to day
 
@@ -118,7 +123,7 @@ installer/   runs on the Arch live USB: network, disk, pacstrap, chroot setup; g
 system/      the OS payload → /usr/share/sneh: the sne CLI, configs, themes, branding, agent docs, rootfs/
 tests/       QEMU end-to-end test (unattended and graphical) and a Hyprland config validator
 docs/        documentation
-website/     the project website (static)
+website/     the project website (static; build-docs.py renders docs/ into website/docs/)
 ```
 
 ## Testing
@@ -128,6 +133,7 @@ website/     the project website (static)
 - zram
 - screenshots, clicks and typing through `sne gui`
 - theme switching and `sne doctor`
+- the default wallpaper and the fuzzel mouse-wheel fix
 - boot time and failed units
 
 Switches:
@@ -141,7 +147,7 @@ Switches:
 
 - Sneh is released under the [MIT licence](LICENSE).
 - Built on **Arch Linux** and **Hyprland**. It is not affiliated with either.
-- The logo is simply the word स्नेह set in **Noto Sans Devanagari** Bold (`system/branding/make-logo.py`) (SIL Open Font License 1.1, see `system/branding/OFL-NotoSansDevanagari.txt`). The font ships in `system/fonts/` under the same licence.
+- The logo is the word स्नेह set in **Noto Sans Devanagari** Bold, drawn by `system/branding/make-logo.py`. The font ships in `system/fonts/` under the SIL Open Font License 1.1 (`system/branding/OFL-NotoSansDevanagari.txt`).
 - The default wallpaper, *dusk ridge*, is Sneh's own: drawn by `system/wallpapers/make-dusk-ridge.py` and MIT-licensed with the rest.
 - The optional **Firewatch** set is fan-shared art from wallhaven.cc. It belongs to its owners (Campo Santo / Olly Moss). Sneh does not redistribute it: it is downloaded on your own machine, for personal use, only if you ask for it (at install, from the wallpaper picker, or with `sne wallpaper fetch`).
 - fuzzel 1.15.0 is rebuilt on the machine with a two-line upstream fix for mouse-wheel scrolling (`system/patches/fuzzel`, MIT) until Arch ships a fixed release.

@@ -8,8 +8,8 @@ step() { printf '\n\e[38;2;200;65;47m▸\e[0m %s\n' "$*"; }
 note() { printf '  %s\n' "$*"; }
 die() {
     printf '\n\e[31m✗ %s\e[0m\n' "$*" >&2
-    if [[ -n ${RK:-} && -d ${RK:-} ]]; then
-        { date -Is; echo "$*"; } >"$RK/install.failed" 2>/dev/null || true
+    if [[ -n ${SNEH_DIR:-} && -d ${SNEH_DIR:-} ]]; then
+        { date -Is; echo "$*"; } >"$SNEH_DIR/install.failed" 2>/dev/null || true
         sync
     fi
     exit 1
@@ -23,7 +23,7 @@ usb_writable() {
 }
 
 start_log() {
-    LOG="$RK/install.log"
+    LOG="$SNEH_DIR/install.log"
     : >"$LOG"
     exec > >(tee -a "$LOG") 2>&1
     export LOG
@@ -34,8 +34,8 @@ on_error() {
     # set -E propagates the trap into $(...) subshells; only the main shell reports
     [[ $BASHPID == "$$" ]] || return 1
     printf '\n\e[31m✗ install failed at line %s: %s\e[0m\n' "$line" "$cmd"
-    date -Is >"$RK/install.failed"
-    echo "The live system stays up. ssh root@$(cfg HOSTNAME sneh)-install.local to debug." | tee -a "$RK/install.failed"
+    date -Is >"$SNEH_DIR/install.failed"
+    echo "The live system stays up. ssh root@$(cfg HOSTNAME sneh)-install.local to debug." | tee -a "$SNEH_DIR/install.failed"
     sync
     exit 1
 }
@@ -70,7 +70,7 @@ validate_config() {
     [[ -e /usr/share/zoneinfo/$(cfg TIMEZONE UTC) ]] || die "unknown TIMEZONE $(cfg TIMEZONE)"
     [[ $(cfg VNC_RESOLUTION 1600x900) =~ ^[0-9]{3,4}x[0-9]{3,4}$ ]] || die "bad VNC_RESOLUTION"
     [[ $(cfg VNC_BIND lan) =~ ^(lan|localhost|tailscale)$ ]] || die "bad VNC_BIND"
-    [[ -d $RK/system/themes/$(cfg THEME dusk) ]] || die "unknown THEME"
+    [[ -d $SNEH_DIR/system/themes/$(cfg THEME dusk) ]] || die "unknown THEME"
     cfg_yes ALLOW_WIPE || die "ALLOW_WIPE is not 'yes' - refusing to touch any disk"
     note "config ok: host=$(cfg HOSTNAME) user=$(cfg USERNAME) theme=$(cfg THEME dusk) target=$(cfg TARGET_DISK auto)"
 }

@@ -6,8 +6,8 @@ set -uo pipefail
 
 SYS=${SNEH_SYS:-/usr/share/sneh}
 CONF=${XDG_CONFIG_HOME:-$HOME/.config}
-RKC=$CONF/sneh
-SETTINGS=$RKC/settings.env
+SNEHCFG=$CONF/sneh
+SETTINGS=$SNEHCFG/settings.env
 STATE=${XDG_STATE_HOME:-$HOME/.local/state}/sneh
 CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/sneh
 VERSION=$(cat "$SYS/VERSION" 2>/dev/null || echo dev)
@@ -23,7 +23,7 @@ done
 set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 # ------------------------------------------------------------------ helpers
-c_dim=$'\e[38;2;133;125;110m'; c_acc=$'\e[38;2;200;65;47m'; c_fg=$'\e[38;2;235;227;210m'; c_r=$'\e[0m'
+c_dim=$'\e[38;2;139;143;184m'; c_acc=$'\e[38;2;239;178;164m'; c_fg=$'\e[38;2;230;226;247m'; c_r=$'\e[0m'   # dusk
 [[ -t 1 ]] || { c_dim=; c_acc=; c_fg=; c_r=; }
 
 die()  { if ((JSON)); then jq -cn --arg e "$*" '{ok:false,error:$e}'; else printf '%sgun:%s %s\n' "$c_acc" "$c_r" "$*" >&2; fi; exit 1; }
@@ -38,7 +38,7 @@ settings_get() { # key [default]
     printf '%s' "${v:-${2:-}}"
 }
 settings_set() { # key value
-    mkdir -p "$RKC"; touch "$SETTINGS"
+    mkdir -p "$SNEHCFG"; touch "$SETTINGS"
     if grep -q "^$1=" "$SETTINGS"; then
         local tmp; tmp=$(mktemp)
         awk -v k="$1" -v v="$2" -F= 'BEGIN{OFS="="} $1==k {print k, v; next} {print}' "$SETTINGS" >"$tmp" && mv "$tmp" "$SETTINGS"
@@ -92,8 +92,8 @@ render_templates() { # theme
     declare -A P=()
     local k v
     while IFS='=' read -r k v; do [[ $k =~ ^[a-z0-9]+$ ]] && P[$k]=$v; done < <(grep -v '^#' "$pal")
-    if [[ -r $RKC/palette.override ]]; then
-        while IFS='=' read -r k v; do [[ $k =~ ^[a-z0-9]+$ && $v =~ ^[0-9a-fA-F]{6}$ ]] && P[$k]=$v; done <"$RKC/palette.override"
+    if [[ -r $SNEHCFG/palette.override ]]; then
+        while IFS='=' read -r k v; do [[ $k =~ ^[a-z0-9]+$ && $v =~ ^[0-9a-fA-F]{6}$ ]] && P[$k]=$v; done <"$SNEHCFG/palette.override"
     fi
     local res; res=$(settings_get VNC_RESOLUTION 1600x900)
     P[W]=${res%x*}; P[H]=${res#*x}; P[home]=$HOME
@@ -105,8 +105,8 @@ render_templates() { # theme
         mkdir -p "$(dirname "$dest")"
         sed "${args[@]}" "$tpl" >"$dest.tmp" && mv "$dest.tmp" "$dest"
     done
-    printf '%s' "${P[bg]}" >"$RKC/.bg"
-    printf '%s' "${P[surface]}" >"$RKC/.frame"
+    printf '%s' "${P[bg]}" >"$SNEHCFG/.bg"
+    printf '%s' "${P[surface]}" >"$SNEHCFG/.frame"
     # dock: no button for an optional app that isn't installed
     if [[ -f $CONF/waybar/config.jsonc ]] && ! command -v spotify-launcher >/dev/null; then
         sed -i -E 's/, *"custom\/d-spotify"//' "$CONF/waybar/config.jsonc"
@@ -136,14 +136,14 @@ wall_current() { # the picture in use: the user's pick, else dusk ridge (empty: 
 }
 
 render_wallpaper() {
-    local svg=$RKC/wallpaper.svg png=$RKC/wallpaper.png custom
+    local svg=$SNEHCFG/wallpaper.svg png=$SNEHCFG/wallpaper.png custom
     custom=$(wall_current)
-    if [[ -n $custom ]]; then ln -sf "$custom" "$RKC/wallpaper.current"; return; fi
+    if [[ -n $custom ]]; then ln -sf "$custom" "$SNEHCFG/wallpaper.current"; return; fi
     local res; res=$(settings_get VNC_RESOLUTION 1600x900)
     if have rsvg-convert && rsvg-convert -w "${res%x*}" -h "${res#*x}" -o "$png.tmp" "$svg" 2>/dev/null; then
-        mv "$png.tmp" "$png"; ln -sf "$png" "$RKC/wallpaper.current"
+        mv "$png.tmp" "$png"; ln -sf "$png" "$SNEHCFG/wallpaper.current"
     else
-        rm -f "$png.tmp" "$RKC/wallpaper.current"
+        rm -f "$png.tmp" "$SNEHCFG/wallpaper.current"
     fi
 }
 
@@ -170,11 +170,11 @@ wall_daemon() {
     exec 9>"$RUNW/wall.lock"
     flock -n 9 || return 0                     # one per session
     local img res w h key dir out n=0
-    img=$(readlink -f "$RKC/wallpaper.current")
+    img=$(readlink -f "$SNEHCFG/wallpaper.current")
     res=$(output_size); w=${res%x*}; h=${res#*x}
     key=$(printf '%s:%s:%s' "$img" "$res" "$(stat -c %Y "$img" 2>/dev/null)" | md5sum | cut -c1-12)
     dir=$CACHE/wall/$key
-    export SNEH_FRAME="$(cat "$RKC/.frame" 2>/dev/null || echo 0d0c0a):30:6:16"
+    export SNEH_FRAME="$(cat "$SNEHCFG/.frame" 2>/dev/null || echo 0d0c0a):30:6:16"
     if [[ ! -s $dir/meta.json ]]; then
         rm -rf "$CACHE/wall"; mkdir -p "$dir"      # keep only the current one
         nice -n 10 "$SYS/bin/sneh-wallpaper" prep "$img" "$dir" "$w" "$h" >/dev/null || return 1
@@ -195,16 +195,16 @@ start_wallpaper() {
     gui_env
     # stop the old loop: its whole process group (the loop, its sleep, a render)
     if [[ -r $RUNW/wall.pid ]]; then kill -- "-$(cat "$RUNW/wall.pid")" 2>/dev/null; rm -f "$RUNW/wall.pid"; fi
-    if [[ -n $(wall_current) && -e $RKC/wallpaper.current ]] && wall_capable; then
+    if [[ -n $(wall_current) && -e $SNEHCFG/wallpaper.current ]] && wall_capable; then
         mkdir -p "$RUNW"
         setsid -f bash -c 'echo $$ >"$1/wall.pid"; exec "$2" wallpaper daemon' _ "$RUNW" "$SYS/bin/sne" >/dev/null 2>&1
         return 0
     fi
     pkill -u "$(id -u)" -x swaybg 2>/dev/null
-    if [[ -e $RKC/wallpaper.current ]]; then
-        setsid -f swaybg -m fill -i "$RKC/wallpaper.current" >/dev/null 2>&1
+    if [[ -e $SNEHCFG/wallpaper.current ]]; then
+        setsid -f swaybg -m fill -i "$SNEHCFG/wallpaper.current" >/dev/null 2>&1
     else
-        setsid -f swaybg -c "#$(cat "$RKC/.bg" 2>/dev/null || echo 000000)" >/dev/null 2>&1
+        setsid -f swaybg -c "#$(cat "$SNEHCFG/.bg" 2>/dev/null || echo 000000)" >/dev/null 2>&1
     fi
 }
 
@@ -261,7 +261,7 @@ cmd_theme() {
             local t=${2:?usage: sne theme set NAME}
             [[ -d $(theme_dir "$t") ]] || die "unknown theme '$t' (sne theme list)"
             settings_set THEME "$t"
-            rm -f "$RKC/palette.override"
+            rm -f "$SNEHCFG/palette.override"
             render_templates "$t"; render_wallpaper; write_hypr_settings; reload_desktop
             ok "theme → $t" ;;
         *) die "usage: sne theme list|current|set NAME" ;;
@@ -274,7 +274,7 @@ wall_accent() { # IMAGE -> palette.override (Ryoku-style accent from the picture
     hex=$(timeout 30 matugen image "$1" --json hex --dry-run </dev/null 2>/dev/null \
         | jq -r '[.colors.primary.dark?, .colors.dark.primary?, .colors.primary.default?] | map(select(. != null)) | .[0] | if type=="object" then (.color // .hex // empty) else . end' 2>/dev/null \
         | tr -d '#' | head -1)
-    [[ $hex =~ ^[0-9a-fA-F]{6}$ ]] && printf 'accent=%s\naccent2=%s\nsun=%s\n' "$hex" "$hex" "$hex" >"$RKC/palette.override"
+    [[ $hex =~ ^[0-9a-fA-F]{6}$ ]] && printf 'accent=%s\naccent2=%s\nsun=%s\n' "$hex" "$hex" "$hex" >"$SNEHCFG/palette.override"
     return 0
 }
 
@@ -285,7 +285,7 @@ wall_apply() { # IMAGE
         settings_set WALLPAPER "$1"
     fi
     if [[ $(realpath "$1") == "$(realpath "$DEFAULT_WALL" 2>/dev/null)" && $(settings_get THEME dusk) == dusk ]]; then
-        rm -f "$RKC/palette.override"      # dusk ridge was drawn in the dusk palette
+        rm -f "$SNEHCFG/palette.override"      # dusk ridge was drawn in the dusk palette
     else
         wall_accent "$1"
     fi
@@ -376,7 +376,7 @@ cmd_wallpaper() {
         daemon) wall_daemon ;;
         start) start_wallpaper ;;   # used by the session autostart
         reset)
-            settings_set WALLPAPER ""; rm -f "$RKC/palette.override"
+            settings_set WALLPAPER ""; rm -f "$SNEHCFG/palette.override"
             render_templates "$(settings_get THEME dusk)"; render_wallpaper; reload_desktop
             ok "wallpaper → dusk ridge (Sneh's own)" ;;
         *) die "usage: sne wallpaper pick|next|prev|set IMAGE|fetch|unfetch|list|clock on|off|reset" ;;
@@ -393,7 +393,7 @@ vnc_apply() {
         tailscale) addr=$(tailscale ip -4 2>/dev/null | head -1); addr=${addr:-127.0.0.1} ;;
         *) addr=127.0.0.1 ;;
     esac
-    pass=$(cat "$RKC/vnc.pass" 2>/dev/null)
+    pass=$(cat "$SNEHCFG/vnc.pass" 2>/dev/null)
     [[ -n $pass ]] || die "no VNC password set (sne vnc password)"
     mkdir -p "$CONF/wayvnc"; chmod 700 "$CONF/wayvnc"
     [[ -s $key ]] || ssh-keygen -q -m pem -t rsa -b 3072 -N "" -f "$key" >/dev/null
@@ -447,7 +447,7 @@ cmd_vnc() {
             local p=${2:-}
             if [[ -z $p ]]; then read -rsp 'new VNC password: ' p; echo; fi
             ((${#p} >= 6)) || die "password needs at least 6 characters"
-            mkdir -p "$RKC"; (umask 077; printf '%s' "$p" >"$RKC/vnc.pass")
+            mkdir -p "$SNEHCFG"; (umask 077; printf '%s' "$p" >"$SNEHCFG/vnc.pass")
             vnc_apply; pkill -u "$(id -u)" -x wayvnc; ok "vnc password changed (clients reconnect)" ;;
         resolution)
             local r=${2:?usage: sne vnc resolution WIDTHxHEIGHT}
@@ -473,11 +473,11 @@ cmd_desktop() {
             if ((JSON)); then jq -cn --argjson r $r --arg o "$(gui_output 2>/dev/null)" --arg p "$(profile)" '{running:$r,output:$o,profile:$p}'
             else echo "desktop: $([[ $r == true ]] && echo running || echo stopped) ($(profile))"; fi ;;
         off)
-            touch "$RKC/desktop.off"
+            touch "$SNEHCFG/desktop.off"
             desktop_running && { gui_env; hdispatch 'hl.dsp.exit()' || pkill -u "$(id -u)" -x Hyprland; }
             ok "desktop stopped (frees ~250 MB for agents). sne desktop on to start it again" ;;
-        on)  rm -f "$RKC/desktop.off"; ok "desktop starting (≈5 s)" ;;
-        restart) desktop_running && { gui_env; hdispatch 'hl.dsp.exit()'; }; rm -f "$RKC/desktop.off"; ok "desktop restarting" ;;
+        on)  rm -f "$SNEHCFG/desktop.off"; ok "desktop starting (≈5 s)" ;;
+        restart) desktop_running && { gui_env; hdispatch 'hl.dsp.exit()'; }; rm -f "$SNEHCFG/desktop.off"; ok "desktop restarting" ;;
         *) die "usage: sne desktop status|on|off|restart" ;;
     esac
 }
@@ -519,7 +519,7 @@ cmd_gui() {
     case $sub in
         screenshot|shot)
             need grim
-            local f=${1:-} scale=${RK_SHOT_SCALE:-1} out
+            local f=${1:-} scale=${SNEH_SHOT_SCALE:-1} out
             [[ -n $f ]] || { mkdir -p "$CACHE/shots"; f=$CACHE/shots/shot-$(date +%Y%m%d-%H%M%S).png; }
             out=$(gui_output)
             grim -s "$scale" ${out:+-o "$out"} "$f" || die "screenshot failed"
@@ -574,7 +574,7 @@ cmd_gui() {
         help|*)
             cat <<EOF
 sne gui — see and drive the desktop (works over SSH; coordinates = screenshot pixels)
-  screenshot [FILE]        PNG of the desktop (RK_SHOT_SCALE=0.5 for smaller images)
+  screenshot [FILE]        PNG of the desktop (SNEH_SHOT_SCALE=0.5 for smaller images)
   monitors | windows | active | cursor     JSON state from Hyprland
   move X Y | click [X Y] [left|right|middle|double] | scroll [N]
   type TEXT | key COMBO (e.g. super+return, ctrl+shift+t, enter)
@@ -748,11 +748,12 @@ cmd_agents() {
 # The quick menu (SUPER+/): every shortcut, searchable; Enter runs it.
 # keys|what it does|command to run (empty = just information)
 KEYS=(
-  "SUPER + /|this menu: keys and shortcuts|"
+  "SUPER + /  or  SUPER + F1|this menu: keys and shortcuts|"
   "SUPER + RETURN|terminal|footclient"
   "SUPER + 1  /  SUPER + 2|desk (wallpaper, bar, dock)  /  agents (plain, full-screen tmux)|"
   "SUPER + A|agents workspace · again: another agent terminal, side by side|sne ws agent"
   "SUPER + SHIFT + 1 / 2|send window to desk / agents|"
+  "SUPER + mouse wheel|switch between desk and agents|"
   "SUPER + SPACE|app launcher|fuzzel"
   "bar: network icon|network menu: Wi-Fi, connect, details|sne net"
   "SUPER + E|files (Thunar) · in a terminal: y (yazi)|sne app files"
@@ -773,6 +774,7 @@ KEYS=(
   "SUPER + S|scratchpad|hyprctl dispatch 'hl.dsp.workspace.toggle_special(\"scratch\")'"
   "SUPER + drag  /  right-drag|move / resize window|"
   "SUPER + N|dismiss notifications|makoctl dismiss --all"
+  "SUPER + ESCAPE|lock the screen (laptop)|"
   "SUPER + SHIFT + S|screenshot a region → clipboard|"
   "PRINT|screenshot → file + clipboard|"
   "SUPER + CTRL + A|VNC mode: animations off|sne perf vnc"
@@ -1133,7 +1135,7 @@ cmd_fonts() { # Maple Mono NF, the 4 styles we use (~4 MB instead of a 200 MB fo
 
 # First-run / re-run user setup. Safe to run any time (keeps your edits in *.local files).
 cmd_setup() {
-    mkdir -p "$CONF" "$STATE" "$CACHE" "$RKC"
+    mkdir -p "$CONF" "$STATE" "$CACHE" "$SNEHCFG"
     local src f rel
     for src in "$SYS"/config/*; do
         for f in $(cd "$src" && find . -type f); do
@@ -1185,7 +1187,7 @@ cmd_setup() {
     render_templates "$(settings_get THEME dusk)"
     render_wallpaper
     write_hypr_settings
-    [[ -s $RKC/vnc.pass ]] && vnc_apply
+    [[ -s $SNEHCFG/vnc.pass ]] && vnc_apply
     reload_desktop
     ok "user config ready ($(profile), theme $(settings_get THEME dusk))"
 }
@@ -1198,11 +1200,11 @@ ${c_acc}स्नेह${c_r} ${c_fg}sne${c_r} ${c_dim}$VERSION — the Sneh sys
 
   status                     machine, memory, zram, temps, services, agents
   attach [NAME]              persistent tmux session for agents (default: agents)
-  agents status|link         installed agent CLIs; relink AGENTS.md + skills
+  agents status|link|install-opencode   agent CLIs; relink AGENTS.md + skills
   gui ...                    screenshot / click / type / key / windows (sne gui help)
   desktop status|on|off|restart   stop the desktop to give agents all the RAM
   vnc status|on|off|password|resolution WxH|bind lan|localhost|tailscale
-  theme list|current|set NAME     ink rose red-august teal aether olive blue-hour
+  theme list|current|set NAME     dusk ink rose red-august teal aether olive blue-hour
   keys                       quick menu of every shortcut (SUPER+/); --list prints them
   win switch|close|quit|desktop|list   ALT+TAB switcher, hide-don't-quit, show desktop
   ws desk|agents|sync        the two workspaces (sync: bar on desk, hidden on agents)
@@ -1213,10 +1215,10 @@ ${c_acc}स्नेह${c_r} ${c_fg}sne${c_r} ${c_dim}$VERSION — the Sneh sys
                              dusk ridge + depth clock; fetch = optional Firewatch set
   fix fuzzel                 build fuzzel with the upstream mouse-wheel fix (sne update does it)
   spotify on|off|status      Spotify Connect speaker (spotifyd) + bar player
-  perf vnc|normal            animations off/on
-  snapshot list|create|diff N|undo N    btrfs snapshots (snapper)
+  perf vnc|normal|status     animations off/on
+  snapshot list|create [DESC]|diff N|undo N   btrfs snapshots (snapper)
   update                     pacman -Syu + Sneh payload (REPO_URL) + agents
-  logs session|vnc|hypr|firstboot|UNIT
+  logs session|vnc|hypr|install|firstboot|UNIT [N]
   doctor                     health checks
   fonts [ZIP]                (re)install Maple Mono NF
   setup                      rebuild ~/.config from $SYS

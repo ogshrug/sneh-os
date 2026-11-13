@@ -6,24 +6,24 @@ format = "$hostname$directory$git_branch$git_status$cmd_duration$line_break$char
 
 [hostname]
 ssh_only = true
-format = "[$hostname](bold #c8412f) "
+format = "[$hostname](bold #efb2a4) "
 
 [directory]
 truncation_length = 3
-style = "#ebe3d2"
+style = "#e6e2f7"
 
 [git_branch]
 format = "[$branch]($style) "
-style = "#857d6e"
+style = "#8b8fb8"
 
 [git_status]
-style = "#c8412f"
+style = "#efb2a4"
 
 [cmd_duration]
 min_time = 2000
 format = "[$duration]($style) "
-style = "#857d6e"
+style = "#8b8fb8"
 
 [character]
-success_symbol = "[›](#ebe3d2)"
-error_symbol = "[›](#c8412f)"
+success_symbol = "[›](#e6e2f7)"
+error_symbol = "[›](#efb2a4)"
